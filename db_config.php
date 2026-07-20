@@ -1,19 +1,20 @@
 <?php
-$host = 'gateway01.us-east-1.prod.aws.tidbcloud.com'; 
-$port = '4000';                                        
-$db   = 'myfantasy';                                   
-$user = 'NP7yaZ8j67LCyUS.root';                             
-$pass = '5PPmozWdxCEXIjNR';                          
+$host = 'gateway01.us-east-1.prod.aws.tidbcloud.com';
+$port = 4000;
+$user = '3vN4k1yP2G8RzWq.root'; // Reemplaza por tu usuario real de TiDB si no es este
+$password = 'TuContraseñaDeTiDB'; // Reemplaza por tu contraseña real
+$dbname = 'fantasy'; // Reemplaza por el nombre de tu base de datos si es diferente
 
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    Pdo\Mysql::ATTR_SSL_CA       => '/etc/ssl/certs/ca-certificates.crt',
+    PDO::MYSQL_ATTR_SSL_CA       => '/etc/ssl/certs/ca-certificates.crt',
 ];
 
 try {
-    $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (PDOException $e) {
-    die("Error de conexión a TiDB Cloud: " . $e->getMessage());
+    $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
+    $pdo = new PDO($dsn, $user, $password, $options);
+} catch (\PDOException $e) {
+    throw new \PDOException($e->getMessage(), (int)$e->getCode());
 }
+?>
