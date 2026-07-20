@@ -1,8 +1,8 @@
 <?php
 $host = 'gateway01.us-east-1.prod.aws.tidbcloud.com';
 $port = 4000;
-$user = '3vN4k1yP2G8RzWq.root'; // Reemplaza por tu usuario real de TiDB si no es este
-$password = 'TuContraseñaDeTiDB'; // Reemplaza por tu contraseña real
+$user = 'NP7yaZ8j67LCyUS.root'; // Reemplaza por tu usuario real de TiDB si no es este
+$password = '5PPmozWdxCEXIjNR'; // Reemplaza por tu contraseña real
 $dbname = 'fantasy'; // Reemplaza por el nombre de tu base de datos si es diferente
 
 $options = [
