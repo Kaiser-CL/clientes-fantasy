@@ -49,7 +49,8 @@ try {
     $_SESSION['id_usuario']     = $user['id_usuario'];
     $_SESSION['nombre_usuario'] = $user['nombre_usuario'];
     $_SESSION['correo_usuario'] = $user['correo_usuario'];
-    $_SESSION['id_rol']          = $user['id_rol'];
+    $_SESSION['id_rol']         = $user['id_rol'];
+    $_SESSION['logged_in']      = true;
 
     header("Location: index.php");
     exit();
