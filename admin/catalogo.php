@@ -34,8 +34,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $id_eliminar = $_POST['id_servicio'] ?? null;
         if ($id_eliminar) {
             try {
+                $stmt_old = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+                $stmt_old->execute([$id_eliminar]);
+                $old_data = $stmt_old->fetch(PDO::FETCH_ASSOC);
+
                 $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio = ?");
                 $stmt->execute([$id_eliminar]);
+
+                if (function_exists('registrar_bitacora') && $old_data) {
+                    registrar_bitacora($pdo, 'servicios', $id_eliminar, 'ELIMINAR', $old_data, null);
+                }
                 $_SESSION['mensaje_exito'] = "Registro eliminado correctamente del catálogo.";
                 header("Location: catalogo.php");
                 exit;
@@ -65,6 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $foto = trim($_POST['foto_servicio'] ?? '');
         if (empty($foto)) $foto = 'default.png';
 
+        // Buscar datos viejos si es actualización
+        $old_data = null;
+        if ($id_servicio) {
+            $stmt_old = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+            $stmt_old->execute([$id_servicio]);
+            $old_data = $stmt_old->fetch(PDO::FETCH_ASSOC);
+        }
+
         // Intento 1: Actualizar incluyendo 'ubicacion', 'tipo_registro' e 'id_categoria'
         try {
             if ($id_servicio) {
@@ -79,14 +95,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, ubicacion, tipo_registro, id_categoria) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
+                $id_servicio = $pdo->lastInsertId();
             }
+
+            // Registrar en bitácora
+            $stmt_new = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+            $stmt_new->execute([$id_servicio]);
+            $new_data = $stmt_new->fetch(PDO::FETCH_ASSOC);
+            if (function_exists('registrar_bitacora')) {
+                registrar_bitacora($pdo, 'servicios', $id_servicio, $old_data ? 'ACTUALIZAR' : 'AGREGAR', $old_data, $new_data);
+            }
+
             $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
             header("Location: catalogo.php");
             exit;
         } catch (PDOException $e) {
             // Intento 2 (Fallback si 'ubicacion' aún no existe en la BD)
             try {
-                if ($id_servicio) {
+                if ($id_servicio && $old_data) {
                     $stmt = $pdo->prepare("UPDATE servicios 
                         SET nombre_servicio = ?, descripcion_servicio = ?, precio_servicio = ?, 
                             es_por_persona = ?, foto_servicio = ?, disponible_servicio = ?, 
@@ -98,7 +124,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                         (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, tipo_registro, id_categoria) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro, $id_categoria]);
+                    $id_servicio = $pdo->lastInsertId();
                 }
+
+                // Registrar en bitácora
+                $stmt_new = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+                $stmt_new->execute([$id_servicio]);
+                $new_data = $stmt_new->fetch(PDO::FETCH_ASSOC);
+                if (function_exists('registrar_bitacora')) {
+                    registrar_bitacora($pdo, 'servicios', $id_servicio, $old_data ? 'ACTUALIZAR' : 'AGREGAR', $old_data, $new_data);
+                }
+
                 $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
                 header("Location: catalogo.php");
                 exit;
