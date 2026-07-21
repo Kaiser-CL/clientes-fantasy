@@ -60,11 +60,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $salon_evento = $_POST['salon_evento'] ?? 'jardin';
         $id_paquete = $_POST['id_paquete'] ?? null;
 
-        // 3. INSERTAR EVENTO (COLUMNAS STRICTAMENTE DE TU TABLA 'eventos')
-        // Columnas verificadas: id_cliente, nombre_evento, fecha_evento, hora_evento, ubicacion, estado
-        $sql_event = "INSERT INTO eventos (id_cliente, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, 'confirmado')";
+        // Asignar ID de sucursal según selección (1 = Jardín, 2 = Carmelo)
+        $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
+
+        // 3. INSERTAR EVENTO (COLUMNAS ESTRICTAMENTE DE TU TABLA 'eventos')
+        // Columnas verificadas: id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado
+        $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, ?, 'confirmado')";
         $stmt_event = $pdo->prepare($sql_event);
-        $stmt_event->execute([$id_usuario_final, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
+        $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
         
         $id_evento_creado = $pdo->lastInsertId();
 
