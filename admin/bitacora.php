@@ -1,6 +1,13 @@
 <?php
 // bitacora.php
 session_start();
+require_once 'auth_check.php';
+
+if (!esSuperAdmin()) {
+    header("Location: catalogo.php");
+    exit();
+}
+
 $raiz = dirname(__DIR__);
 $conexion_path = file_exists($raiz . '/db_config.php') ? $raiz . '/db_config.php' : (file_exists(__DIR__ . '/db_config.php') ? __DIR__ . '/db_config.php' : null);
 
