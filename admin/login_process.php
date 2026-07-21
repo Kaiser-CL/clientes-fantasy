@@ -4,6 +4,41 @@ session_start();
 $raiz = dirname(__DIR__);
 $conexion_path = file_exists($raiz . '/db_config.php') ? $raiz . '/db_config.php' : (file_exists(__DIR__ . '/db_config.php') ? __DIR__ . '/db_config.php' : null);
 
+require_once $conexion_path;
+
+$input = trim($_POST['correo_usuario'] ?? '');
+$pass  = trim($_POST['contrasena_usuario'] ?? '');
+
+echo "<h2>DIAGNÓSTICO DE LOGIN</h2>";
+echo "<b>Input recibido:</b> [" . htmlspecialchars($input) . "]<br>";
+echo "<b>Contraseña recibida:</b> [" . htmlspecialchars($pass) . "]<br><br>";
+
+$stmt = $pdo->prepare("SELECT * FROM usuarios WHERE correo_usuario = ? OR nombre_usuario = ? LIMIT 1");
+$stmt->execute([$input, $input]);
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$user) {
+    echo "<b style='color:red;'>RESULTADO: No se encontró ningún usuario con ese correo o nombre.</b>";
+    exit();
+}
+
+$eval_bcrypt = password_verify($pass, $user['contrasena_usuario']);
+$eval_plana  = ($pass === $user['contrasena_usuario']);
+
+echo "<b>Usuario encontrado en BD:</b> " . htmlspecialchars($user['correo_usuario']) . " (ID: " . $user['id_usuario'] . ")<br>";
+echo "<b>Nombre en BD:</b> " . htmlspecialchars($user['nombre_usuario']) . "<br>";
+echo "<b>Estado en BD:</b> " . $user['estado_usuario'] . "<br>";
+echo "<b>Rol en BD:</b> " . $user['id_rol'] . "<br><br>";
+
+echo "<b>Prueba contraseña Bcrypt:</b> " . ($eval_bcrypt ? "<span style='color:green;'>CORRECTA</span>" : "<span style='color:red;'>INCORRECTA</span>") . "<br>";
+echo "<b>Prueba contraseña Plana:</b> " . ($eval_plana ? "<span style='color:green;'>CORRECTA</span>" : "<span style='color:red;'>INCORRECTA</span>") . "<br>";
+
+exit();<?php
+session_start();
+
+$raiz = dirname(__DIR__);
+$conexion_path = file_exists($raiz . '/db_config.php') ? $raiz . '/db_config.php' : (file_exists(__DIR__ . '/db_config.php') ? __DIR__ . '/db_config.php' : null);
+
 if (!$conexion_path) {
     header("Location: login.php?error=error_servidor");
     exit();
