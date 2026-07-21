@@ -39,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $descripcion = trim($_POST['descripcion_servicio'] ?? '');
         $precio = $_POST['precio_servicio'] ?? 0;
         $tipo_registro = $_POST['tipo_registro'] ?? 'paquete'; 
+        $id_categoria = ($tipo_registro === 'paquete') ? 1 : 2;
         $categoria = $_POST['categoria'] ?? 'infantil';
         $ubicacion = $_POST['ubicacion'] ?? 'jardin';
         $es_por_persona = isset($_POST['es_por_persona']) ? 1 : 0;
@@ -46,20 +47,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $foto = trim($_POST['foto_servicio'] ?? '');
         if (empty($foto)) $foto = 'default.png';
 
-        // Intento 1: Actualizar incluyendo 'ubicacion' y 'tipo_registro'
+        // Intento 1: Actualizar incluyendo 'ubicacion', 'tipo_registro' e 'id_categoria'
         try {
             if ($id_servicio) {
                 $stmt = $pdo->prepare("UPDATE servicios 
                     SET nombre_servicio = ?, descripcion_servicio = ?, precio_servicio = ?, 
                         es_por_persona = ?, foto_servicio = ?, disponible_servicio = ?, 
-                        categoria = ?, ubicacion = ?, tipo_registro = ?
+                        categoria = ?, ubicacion = ?, tipo_registro = ?, id_categoria = ?
                     WHERE id_servicio = ?");
-                $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_servicio]);
+                $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria, $id_servicio]);
             } else {
                 $stmt = $pdo->prepare("INSERT INTO servicios 
-                    (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, ubicacion, tipo_registro) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro]);
+                    (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, ubicacion, tipo_registro, id_categoria) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
             }
             $mensaje = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
         } catch (PDOException $e) {
@@ -69,14 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     $stmt = $pdo->prepare("UPDATE servicios 
                         SET nombre_servicio = ?, descripcion_servicio = ?, precio_servicio = ?, 
                             es_por_persona = ?, foto_servicio = ?, disponible_servicio = ?, 
-                            categoria = ?, tipo_registro = ?
+                            categoria = ?, tipo_registro = ?, id_categoria = ?
                         WHERE id_servicio = ?");
-                    $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro, $id_servicio]);
+                    $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro, $id_categoria, $id_servicio]);
                 } else {
                     $stmt = $pdo->prepare("INSERT INTO servicios 
-                        (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, tipo_registro) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro]);
+                        (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, tipo_registro, id_categoria) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro, $id_categoria]);
                 }
                 $mensaje = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
             } catch (PDOException $ex) {
