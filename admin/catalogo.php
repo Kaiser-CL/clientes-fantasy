@@ -17,6 +17,15 @@ if ($conexion_path) {
 $mensaje = '';
 $error_db = null;
 
+if (isset($_SESSION['mensaje_exito'])) {
+    $mensaje = $_SESSION['mensaje_exito'];
+    unset($_SESSION['mensaje_exito']);
+}
+if (isset($_SESSION['error_db'])) {
+    $error_db = $_SESSION['error_db'];
+    unset($_SESSION['error_db']);
+}
+
 // --- PROCESAR POST (GUARDAR / EDITAR / ELIMINAR) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     $accion = $_POST['accion'] ?? '';
@@ -27,9 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             try {
                 $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio = ?");
                 $stmt->execute([$id_eliminar]);
-                $mensaje = "Registro eliminado correctamente del catálogo.";
+                $_SESSION['mensaje_exito'] = "Registro eliminado correctamente del catálogo.";
+                header("Location: catalogo.php");
+                exit;
             } catch (PDOException $e) {
-                $error_db = "No se puede eliminar: " . $e->getMessage();
+                $_SESSION['error_db'] = "No se puede eliminar: " . $e->getMessage();
+                header("Location: catalogo.php");
+                exit;
             }
         }
     } 
@@ -67,7 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
             }
-            $mensaje = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
+            $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
+            header("Location: catalogo.php");
+            exit;
         } catch (PDOException $e) {
             // Intento 2 (Fallback si 'ubicacion' aún no existe en la BD)
             try {
@@ -84,9 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $tipo_registro, $id_categoria]);
                 }
-                $mensaje = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
+                $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
+                header("Location: catalogo.php");
+                exit;
             } catch (PDOException $ex) {
-                $error_db = "Error al guardar en la base de datos: " . $ex->getMessage();
+                $_SESSION['error_db'] = "Error al guardar en la base de datos: " . $ex->getMessage();
+                header("Location: catalogo.php");
+                exit;
             }
         }
     }
