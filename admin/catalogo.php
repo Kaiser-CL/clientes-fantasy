@@ -39,8 +39,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $descripcion = trim($_POST['descripcion_servicio'] ?? '');
         $precio = $_POST['precio_servicio'] ?? 0;
         $tipo_registro = $_POST['tipo_registro'] ?? 'paquete'; 
-        $id_categoria = ($tipo_registro === 'paquete') ? 1 : 2;
         $categoria = $_POST['categoria'] ?? 'infantil';
+
+        if ($tipo_registro === 'servicio_extra') {
+            $id_categoria = 3;
+        } else {
+            $id_categoria = ($categoria === 'infantil') ? 2 : 1;
+        }
         $ubicacion = $_POST['ubicacion'] ?? 'jardin';
         $es_por_persona = isset($_POST['es_por_persona']) ? 1 : 0;
         $disponible = isset($_POST['disponible_servicio']) ? 1 : 0;
