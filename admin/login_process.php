@@ -34,8 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($usuario) {
             // Verificación de contraseña en texto plano
-            if ($contrasena === $usuario['contrasena_usuario']) {
-                
+        if (password_verify($contrasena, $usuario['contrasena_usuario'])) {                
                 // Regenerar ID de sesión por seguridad
                 session_regenerate_id(true);
 
