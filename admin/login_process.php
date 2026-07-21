@@ -6,7 +6,7 @@ error_reporting(E_ALL);
 
 session_start();
 
-// Cargar la configuración de la base de datos (un nivel arriba en htdocs)
+// Cargar la configuración de la base de datos
 require_once __DIR__ . '/../db_config.php';
 
 // Verificar que los datos vengan por POST
@@ -33,27 +33,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($usuario) {
-            // Verificación de contraseña en texto plano
-        if (password_verify($contrasena, $usuario['contrasena_usuario'])) {                
-                // Regenerar ID de sesión por seguridad
+
+            // --- BLOQUE DE DEPURACIÓN TEMPORAL ---
+            echo "<style>body { background: #111; color: #0f0; font-family: monospace; padding: 20px; font-size: 16px; }</style>";
+            echo "<h2>--- PRUEBA DE DEPURACIÓN LOGIN ---</h2>";
+            
+            $hash_bd = trim($usuario['contrasena_usuario'] ?? '');
+            
+            echo "<b>1. Contraseña tipeada:</b> [" . htmlspecialchars($contrasena) . "]<br>";
+            echo "<b>2. Longitud tipeada:</b> " . strlen($contrasena) . " caracteres<br><br>";
+            
+            echo "<b>3. Hash en BD:</b> [" . htmlspecialchars($hash_bd) . "]<br>";
+            echo "<b>4. Longitud Hash en BD:</b> " . strlen($hash_bd) . " caracteres (debe ser 60)<br><br>";
+            
+            $es_valida = password_verify($contrasena, $hash_bd);
+            echo "<b>5. Resultado de password_verify():</b> ";
+            var_dump($es_valida);
+            
+            echo "<br><hr><b>Array devuelto por TiDB:</b><br>";
+            echo "<pre>";
+            print_r($usuario);
+            echo "</pre>";
+            exit();
+            // --- FIN BLOQUE DE DEPURACIÓN ---
+
+            /* 
+            // Código normal (se reactivará una vez veamos la salida del debug)
+            if (password_verify($contrasena, $usuario['contrasena_usuario'])) {                
                 session_regenerate_id(true);
 
-                // Guardar variables de sesión clave
                 $_SESSION['usuario_id']        = $usuario['id_usuario'];
                 $_SESSION['nombre_usuario']    = $usuario['nombre_usuario'];
                 $_SESSION['apellidos_usuario'] = $usuario['apellidos_usuario'];
-                $_SESSION['id_rol']            = (int)$usuario['id_rol']; // 3 = SuperAdmin
+                $_SESSION['id_rol']            = (int)$usuario['id_rol'];
                 $_SESSION['logged_in']         = true;
 
-                // Redirigir al panel principal
                 header("Location: index.php");
                 exit();
-
             } else {
-                // Contraseña incorrecta
                 header("Location: login.php?error=credenciales_invalidas");
                 exit();
             }
+            */
+
         } else {
             // Usuario no encontrado
             header("Location: login.php?error=credenciales_invalidas");
@@ -61,12 +83,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
     } catch (PDOException $e) {
-        // Muestra el error exacto de SQL / TiDB en pantalla para identificar la falla
         echo "<h2>Error de Base de Datos / SQL:</h2>";
         echo "<pre>" . htmlspecialchars($e->getMessage()) . "</pre>";
         exit();
     } catch (Exception $e) {
-        // Captura cualquier otro tipo de error general de PHP
         echo "<h2>Error General:</h2>";
         echo "<pre>" . htmlspecialchars($e->getMessage()) . "</pre>";
         exit();
