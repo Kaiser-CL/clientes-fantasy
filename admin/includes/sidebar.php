@@ -7,9 +7,10 @@ $pagina_actual = basename($_SERVER['PHP_SELF']);
 ?>
 
 <div class="col-md-3 col-lg-2 bg-dark sidebar p-3 min-vh-100 shadow-sm">
-    <h4 class="text-center text-white my-3">
-        <i class="fa-solid fa-wand-magic-sparkles me-2 text-primary"></i>Fantasy Admin
-    </h4>
+    <div class="text-center my-3">
+        <img src="../Images/logo_salon1.png" alt="Fantasy Admin" style="height: 80px; max-width: 100%; object-fit: contain; margin-bottom: 10px; border-radius: 8px;">
+        <h5 class="text-white mb-0 fw-bold">Fantasy Admin</h5>
+    </div>
     <hr class="text-secondary">
     
     <ul class="nav nav-pills flex-column mb-auto">
