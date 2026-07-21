@@ -14,7 +14,7 @@ $mensaje = '';
 $error_db = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    // Agregar Empleado (Asigna Rol 2 por defecto)
+    // Agregar Empleado (Asigna Rol 4)
     if (isset($_POST['accion']) && $_POST['accion'] === 'crear') {
         $nombre = trim($_POST['nombre_usuario']);
         $apellidos = trim($_POST['apellidos_usuario']);
@@ -23,8 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $pass = password_hash($_POST['password_usuario'] ?? '123456', PASSWORD_DEFAULT);
 
         try {
-            // Se inserta con id_rol = 2 (Empleado / Admin normal)
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 2, 1)");
+            // Se inserta con id_rol = 4 (Empleado)
+            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $pass]);
             $mensaje = "Empleado guardado correctamente.";
         } catch (PDOException $e) {
@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         }
     }
 
-    // Editar Empleado (Aplica para Rol 2)
+    // Editar Empleado (Aplica para Rol 4)
     if (isset($_POST['accion']) && $_POST['accion'] === 'editar') {
         $id_u = $_POST['id_usuario'];
         $nombre = trim($_POST['nombre_usuario']);
@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $estado = $_POST['estado_usuario'];
 
         try {
-            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
+            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_u]);
             $mensaje = "Empleado actualizado correctamente.";
         } catch (PDOException $e) {
@@ -50,11 +50,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         }
     }
 
-    // Eliminar Empleado (Aplica para Rol 2)
+    // Eliminar Empleado (Aplica para Rol 4)
     if (isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
         $id_u = $_POST['id_usuario'];
         try {
-            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND id_rol = 2");
+            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$id_u]);
             $mensaje = "Empleado eliminado correctamente.";
         } catch (PDOException $e) {
@@ -63,11 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// Consultar SOLO empleados (Rol 2)
+// Consultar SOLO empleados (Rol 4)
 $empleados = [];
 if (isset($pdo)) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
+        $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE id_rol = 4 ORDER BY id_usuario DESC");
         $stmt->execute();
         $empleados = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
