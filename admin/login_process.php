@@ -1,53 +1,34 @@
 <?php
-session_start();
-require_once __DIR__ . '/../db_config.php';
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-    $correo_o_usuario = trim($_POST['correo_usuario'] ?? '');
-    $contrasena       = trim($_POST['contrasena_usuario'] ?? '');
+require_once '../db_config.php'; // o la ruta correcta a tu db_config
 
-    if (empty($correo_o_usuario) || empty($contrasena)) {
-        header("Location: login.php?error=campos_vacios");
-        exit();
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $usuario_ingresado = trim($_POST['usuario'] ?? $_POST['correo'] ?? ''); 
+    $contrasena_ingresada = trim($_POST['contrasena'] ?? '');
+
+    echo "<h3>1. Datos recibidos del formulario:</h3>";
+    echo "<b>Usuario/Correo:</b> [" . htmlspecialchars($usuario_ingresado) . "]<br>";
+    echo "<b>Contraseña:</b> [" . htmlspecialchars($contrasena_ingresada) . "]<br><hr>";
+
+    // Buscamos si existe en correo OR nombre_usuario
+    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE correo_usuario = ? OR nombre_usuario = ?");
+    $stmt->execute([$usuario_ingresado, $usuario_ingresado]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    echo "<h3>2. Resultado de la base de datos:</h3>";
+    if ($user) {
+        echo "<pre>";
+        print_r($user);
+        echo "</pre>";
+
+        echo "<h3>3. Prueba de password_verify:</h3>";
+        $verificado = password_verify($contrasena_ingresada, $user['contrasena_usuario']);
+        echo "<b>¿Coincide la contraseña?:</b> " . ($verificado ? "<b style='color:green'>SÍ (TRUE)</b>" : "<b style='color:red'>NO (FALSE)</b>");
+    } else {
+        echo "<b style='color:red'>No se encontró ningún usuario con ese correo/nombre en la BD.</b>";
     }
-
-    try {
-        $stmt = $pdo->prepare("
-            SELECT id_usuario, nombre_usuario, apellidos_usuario, correo_usuario, contrasena_usuario, id_rol 
-            FROM usuarios 
-            WHERE correo_usuario = :identificador OR nombre_usuario = :identificador
-            LIMIT 1
-        ");
-        
-        $stmt->execute([':identificador' => $correo_o_usuario]);
-        $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($usuario) {
-            $hash_bd = trim($usuario['contrasena_usuario'] ?? '');
-
-            if (password_verify($contrasena, $hash_bd)) {
-                // Login Exitoso
-                $_SESSION['id_usuario']     = $usuario['id_usuario'];
-                $_SESSION['nombre_usuario'] = $usuario['nombre_usuario'];
-                $_SESSION['id_rol']          = $usuario['id_rol'];
-
-                header("Location: index.php");
-                exit();
-            }
-        }
-
-        // Si el usuario no existe o la contraseña falla
-        header("Location: login.php?error=credenciales_invalidas");
-        exit();
-
-    } catch (PDOException $e) {
-        error_log("Error de login: " . $e->getMessage());
-        header("Location: login.php?error=error_sistema");
-        exit();
-    }
-
-} else {
-    header("Location: login.php");
-    exit();
+    exit;
 }
+?>
