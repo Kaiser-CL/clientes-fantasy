@@ -34,11 +34,13 @@ $pagina_actual = basename($_SERVER['PHP_SELF']);
                 <i class="fa-solid fa-users me-2"></i> Clientes
             </a>
         </li>
+        <?php if (isset($_SESSION['id_rol']) && $_SESSION['id_rol'] == 3): ?>
         <li class="nav-item mb-1">
             <a href="empleados.php" class="nav-link text-white <?= ($pagina_actual == 'empleados.php') ? 'active bg-primary' : '' ?>">
                 <i class="fa-solid fa-user-gear me-2"></i> Empleados
             </a>
         </li>
+        <?php endif; ?>
         <?php if (isset($_SESSION['id_rol']) && $_SESSION['id_rol'] == 3): ?>
         <li class="nav-item mb-1">
             <a href="bitacora.php" class="nav-link text-white <?= ($pagina_actual == 'bitacora.php') ? 'active bg-primary' : '' ?>">
