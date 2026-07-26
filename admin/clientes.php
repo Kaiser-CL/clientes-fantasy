@@ -24,8 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $password = password_hash($_POST['password_usuario'] ?? '123456', PASSWORD_DEFAULT);
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 2, 1)");
-            $stmt->execute([$nombre, $apellidos, $correo, $telefono, $password]);
+            $id_empleado = $_SESSION['id_usuario'] ?? null;
+            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, 1, ?)");
+            $stmt->execute([$nombre, $apellidos, $correo, $telefono, $password, $id_empleado]);
             $mensaje = "Cliente agregado correctamente.";
         } catch (PDOException $e) {
             $error_db = "Error al guardar cliente: " . $e->getMessage();
