@@ -19,6 +19,16 @@ if ($conexion_path) {
 $mensaje = '';
 $error_db = null;
 
+// Leer mensajes de la sesion (patron PRG)
+if (isset($_SESSION['mensaje_exito'])) {
+    $mensaje = $_SESSION['mensaje_exito'];
+    unset($_SESSION['mensaje_exito']);
+}
+if (isset($_SESSION['error_db'])) {
+    $error_db = $_SESSION['error_db'];
+    unset($_SESSION['error_db']);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     // Agregar Empleado (Asigna Rol 4)
     if (isset($_POST['accion']) && $_POST['accion'] === 'crear') {
@@ -32,10 +42,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             // Se inserta con id_rol = 4 (Empleado)
             $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $pass]);
-            $mensaje = "Empleado guardado correctamente.";
+            $_SESSION['mensaje_exito'] = "Empleado guardado correctamente.";
         } catch (PDOException $e) {
-            $error_db = "Error al guardar empleado: " . $e->getMessage();
+            $_SESSION['error_db'] = "Error al guardar empleado: " . $e->getMessage();
         }
+        header("Location: empleados.php");
+        exit;
     }
 
     // Editar Empleado (Aplica para Rol 4)
@@ -50,10 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         try {
             $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_u]);
-            $mensaje = "Empleado actualizado correctamente.";
+            $_SESSION['mensaje_exito'] = "Empleado actualizado correctamente.";
         } catch (PDOException $e) {
-            $error_db = "Error al actualizar empleado: " . $e->getMessage();
+            $_SESSION['error_db'] = "Error al actualizar empleado: " . $e->getMessage();
         }
+        header("Location: empleados.php");
+        exit;
     }
 
     // Eliminar Empleado (Aplica para Rol 4)
@@ -62,12 +76,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         try {
             $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$id_u]);
-            $mensaje = "Empleado eliminado correctamente.";
+            $_SESSION['mensaje_exito'] = "Empleado eliminado correctamente.";
         } catch (PDOException $e) {
-            $error_db = "Error al eliminar empleado: " . $e->getMessage();
+            $_SESSION['error_db'] = "Error al eliminar empleado: " . $e->getMessage();
         }
+        header("Location: empleados.php");
+        exit;
     }
 }
+
 
 // Consultar SOLO empleados (Rol 4)
 $empleados = [];

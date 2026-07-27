@@ -14,6 +14,16 @@ if ($conexion_path) {
 $mensaje = '';
 $error_db = null;
 
+// Leer mensajes de la sesion (patron PRG)
+if (isset($_SESSION['mensaje_exito'])) {
+    $mensaje = $_SESSION['mensaje_exito'];
+    unset($_SESSION['mensaje_exito']);
+}
+if (isset($_SESSION['error_db'])) {
+    $error_db = $_SESSION['error_db'];
+    unset($_SESSION['error_db']);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     // Procesar Registro de Nuevo Cliente
     if (isset($_POST['accion']) && $_POST['accion'] === 'crear') {
@@ -27,10 +37,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $id_empleado = $_SESSION['id_usuario'] ?? null;
             $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, 1, ?)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $password, $id_empleado]);
-            $mensaje = "Cliente agregado correctamente.";
+            $_SESSION['mensaje_exito'] = "Cliente agregado correctamente.";
         } catch (PDOException $e) {
-            $error_db = "Error al guardar cliente: " . $e->getMessage();
+            $_SESSION['error_db'] = "Error al guardar cliente: " . $e->getMessage();
         }
+        header("Location: clientes.php");
+        exit;
     }
 
     // Procesar Edición de Cliente
@@ -45,10 +57,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         try {
             $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_usuario]);
-            $mensaje = "Cliente actualizado correctamente.";
+            $_SESSION['mensaje_exito'] = "Cliente actualizado correctamente.";
         } catch (PDOException $e) {
-            $error_db = "Error al actualizar cliente: " . $e->getMessage();
+            $_SESSION['error_db'] = "Error al actualizar cliente: " . $e->getMessage();
         }
+        header("Location: clientes.php");
+        exit;
     }
 }
 

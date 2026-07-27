@@ -39,6 +39,12 @@ try {
         exit();
     }
 
+    // Bloquear acceso a clientes (id_rol = 2), solo admin, superadmin y empleados pueden entrar
+    if ((int)$user['id_rol'] === 2) {
+        header("Location: login.php?error=acceso_denegado");
+        exit();
+    }
+
     $pass_valida = password_verify($pass, $user['contrasena_usuario']) || ($pass === 'admin1234');
 
     if (!$pass_valida) {

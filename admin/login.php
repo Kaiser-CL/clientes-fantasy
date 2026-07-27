@@ -35,6 +35,9 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
                                         case 'credenciales_invalidas':
                                             echo "Usuario o contraseña incorrectos.";
                                             break;
+                                        case 'acceso_denegado':
+                                            echo "Esta área es exclusiva del personal del salón. Los clientes acceden desde la App.";
+                                            break;
                                         case 'sesion_requerida':
                                             echo "Debes iniciar sesión primero.";
                                             break;
