@@ -191,7 +191,7 @@ if (isset($pdo)) {
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Correo Electrónico</label>
-                                                                <input type="email" name="correo_usuario" class="form-control" value="<?= htmlspecialchars($emp['correo_usuario']) ?>" required>
+                                                                <input type="email" name="email" value="<?php echo htmlspecialchars($empleado['email'] ?? ''); ?>" required>
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Teléfono</label>
