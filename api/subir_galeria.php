@@ -1,69 +1,75 @@
 <?php
-// admin/subir_galeria.php
+// api/subir_galeria.php
 
-// Si usas sesiones para proteger el admin, puedes incluir tu auth_check.php aquí
-// require_once 'includes/auth_check.php';
-
-// Ajusta la ruta a tu archivo de conexión si está en config/ db.php o similar
 require_once dirname(__DIR__) . '/db_config.php';
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // Recibir tipo ('paquetes' o 'extras') e ID de la entidad
+    // 1. ACEPTAR AMBOS NOMBRES ('id_entidad' O 'id')
     $tipo = $_POST['tipo'] ?? ''; 
-    $idEntidad = intval($_POST['id_entidad'] ?? 0); 
+    $idEntidad = intval($_POST['id_entidad'] ?? $_POST['id'] ?? 0); 
 
-    // Validar parámetros para evitar inyecciones o carpetas inválidas
+    // Validar parámetros
     if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
         echo json_encode(['status' => 'error', 'message' => 'Tipo o ID de entidad no válido.']);
         exit;
     }
 
     // Ruta física en el servidor: /Images/{tipo}/{id}/
-    $directorioDestino = __DIR__ . "/../Images/" . $tipo . "/" . $idEntidad . "/";
+    $directorioDestino = dirname(__DIR__) . "/Images/" . $tipo . "/" . $idEntidad . "/";
 
-    // Crear la subcarpeta del ID automáticamente si no existe aún
+    // Crear la subcarpeta automáticamente si no existe
     if (!file_exists($directorioDestino)) {
         mkdir($directorioDestino, 0777, true);
     }
 
+    // 2. DETECTAR 'archivos' (QUE ENVÍA EL JS) O 'imagenes'
+    $archivosInput = null;
+    if (isset($_FILES['archivos'])) {
+        $archivosInput = $_FILES['archivos'];
+    } elseif (isset($_FILES['imagenes'])) {
+        $archivosInput = $_FILES['imagenes'];
+    }
+
     // Validar que se hayan enviado archivos
-    if (isset($_FILES['imagenes']) && !empty($_FILES['imagenes']['name'][0])) {
+    if ($archivosInput && !empty($archivosInput['name'][0])) {
         
         $totalSubidos = 0;
-        $archivos = $_FILES['imagenes'];
         $extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
+        $totalArchivos = is_array($archivosInput['name']) ? count($archivosInput['name']) : 1;
 
-        for ($i = 0; $i < count($archivos['name']); $i++) {
+        for ($i = 0; $i < $totalArchivos; $i++) {
             
-            if ($archivos['error'][$i] === UPLOAD_ERR_OK) {
+            $error = is_array($archivosInput['error']) ? $archivosInput['error'][$i] : $archivosInput['error'];
+            
+            if ($error === UPLOAD_ERR_OK) {
                 
-                $tmpName = $archivos['tmp_name'][$i];
-                $extension = strtolower(pathinfo($archivos['name'][$i], PATHINFO_EXTENSION));
+                $tmpName = is_array($archivosInput['tmp_name']) ? $archivosInput['tmp_name'][$i] : $archivosInput['tmp_name'];
+                $nombreOriginal = is_array($archivosInput['name']) ? $archivosInput['name'][$i] : $archivosInput['name'];
+                $extension = strtolower(pathinfo($nombreOriginal, PATHINFO_EXTENSION));
                 
                 // Verificar extensión
                 if (!in_array($extension, $extensionesPermitidas)) {
                     continue; 
                 }
 
-                // Definir el tipo de archivo (video o imagen) para tu columna ENUM
+                // Definir tipo de archivo (video o imagen)
                 $tipoArchivo = in_array($extension, ['mp4', 'mov']) ? 'video' : 'imagen';
 
-                // Generar nombre único para no sobrescribir nada
+                // Generar nombre único
                 $nombreArchivo = uniqid("img_") . "." . $extension;
                 $rutaFisicaFinal = $directorioDestino . $nombreArchivo;
 
                 // Mover archivo temporal al directorio final
                 if (move_uploaded_file($tmpName, $rutaFisicaFinal)) {
                     
-                    // Ruta relativa que se almacenará en la Base de Datos
+                    // Ruta relativa que se almacenará en la BD
                     $rutaRelativaBD = "Images/" . $tipo . "/" . $idEntidad . "/" . $nombreArchivo;
 
-                    // CORRECCIÓN AQUÍ: Se usa la tabla 'servicio_galeria' y sus columnas correctas
+                    // Insertar en la tabla 'servicio_galeria'
                     $sql = "INSERT INTO servicio_galeria (id_servicio, ruta_archivo, tipo_archivo) VALUES (?, ?, ?)";
-
                     $stmt = $pdo->prepare($sql);
                     $stmt->execute([$idEntidad, $rutaRelativaBD, $tipoArchivo]);
                     
@@ -81,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
 
     } else {
-        echo json_encode(['status' => 'error', 'message' => 'No se seleccionó ninguna imagen.']);
+        echo json_encode(['status' => 'error', 'message' => 'No se seleccionó ninguna imagen o archivo.']);
         exit;
     }
 } else {
