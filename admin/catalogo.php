@@ -91,7 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     WHERE id_servicio = ?");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria, $id_servicio]);
 
-                // REGISTRO EN BITÁCORA
                 if (function_exists('registrarBitacora')) {
                     registrarBitacora($pdo, 'ACTUALIZAR', 'servicios', $id_servicio, $datosViejos, $nuevosDatos);
                 }
@@ -102,7 +101,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
                 $nuevoId = $pdo->lastInsertId();
 
-                // REGISTRO EN BITÁCORA
                 if (function_exists('registrarBitacora')) {
                     registrarBitacora($pdo, 'AGREGAR', 'servicios', $nuevoId, null, $nuevosDatos);
                 }
@@ -119,14 +117,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// CONSULTAR CATÁLOGO Y TOTAL DE MULTIMEDIA
+// CONSULTAR CATÁLOGO Y CONTAR ARCHIVOS DESDE JSON
 $servicios_lista = [];
 if (isset($pdo)) {
     try {
         $stmt = $pdo->query("SELECT s.*, 
-            (SELECT COUNT(*) FROM servicio_galeria g WHERE g.id_servicio = s.id_servicio) as total_fotos 
+            (SELECT g.url_archivo FROM galeria_conceptos g WHERE g.id_servicio = s.id_servicio LIMIT 1) as galeria_json 
             FROM servicios s ORDER BY s.id_servicio DESC");
+        
         $servicios_lista = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Calcular el número real de fotos/videos dentro del arreglo JSON
+        foreach ($servicios_lista as &$item) {
+            if (!empty($item['galeria_json'])) {
+                $fotos = json_decode($item['galeria_json'], true);
+                $item['total_fotos'] = is_array($fotos) ? count($fotos) : 1;
+            } else {
+                $item['total_fotos'] = 0;
+            }
+        }
+        unset($item);
     } catch (PDOException $e) {
         $servicios_lista = [];
     }
@@ -144,6 +154,7 @@ include __DIR__ . '/includes/header.php';
     .preview-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #cbd5e1; }
     .thumb-container { position: relative; display: inline-block; margin: 5px; }
     .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
+    .filter-card { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
 </style>
 
 <div class="container-fluid">
@@ -171,13 +182,48 @@ include __DIR__ . '/includes/header.php';
                 </div>
             <?php endif; ?>
 
+            <!-- BARRA DE FILTROS EN TIEMPO REAL -->
+            <div class="filter-card p-3 mb-3">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-3">
+                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-filter me-1"></i>Tipo Registro</label>
+                        <select id="filtro_tipo" class="form-select form-select-sm" onchange="filtrarTabla()">
+                            <option value="todos">-- Todos --</option>
+                            <option value="paquete">Paquete</option>
+                            <option value="servicio_extra">Servicio Extra</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-masks-theater me-1"></i>Tipo Evento</label>
+                        <select id="filtro_evento" class="form-select form-select-sm" onchange="filtrarTabla()">
+                            <option value="todos">-- Todos --</option>
+                            <option value="infantil">Infantil</option>
+                            <option value="social">Social</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-location-dot me-1"></i>Ubicación</label>
+                        <select id="filtro_ubicacion" class="form-select form-select-sm" onchange="filtrarTabla()">
+                            <option value="todos">-- Todas --</option>
+                            <option value="jardin">Jardín</option>
+                            <option value="carmelo">Carmelo</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 text-end pt-3">
+                        <button class="btn btn-sm btn-outline-secondary fw-bold w-100" onclick="limpiarFiltros()">
+                            <i class="fa-solid fa-rotate-left me-1"></i> Limpiar Filtros
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div class="card-custom p-0 overflow-hidden">
                 <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
                     <h5 class="fw-bold m-0 text-dark"><i class="fa-solid fa-list me-2" style="color: var(--color-morado);"></i>Elementos del Catálogo</h5>
-                    <span class="badge rounded-pill bg-dark fs-6"><?= count($servicios_lista) ?> Registros</span>
+                    <span class="badge rounded-pill bg-dark fs-6" id="contador_registros"><?= count($servicios_lista) ?> Registros</span>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0" id="tabla_catalogo">
                         <thead class="table-dark">
                             <tr>
                                 <th class="ps-3">Tipo Registro</th>
@@ -192,7 +238,7 @@ include __DIR__ . '/includes/header.php';
                         </thead>
                         <tbody>
                             <?php if (empty($servicios_lista)): ?>
-                                <tr><td colspan="8" class="text-center py-4 text-muted fw-bold">No hay registros en el catálogo.</td></tr>
+                                <tr id="row_sin_datos"><td colspan="8" class="text-center py-4 text-muted fw-bold">No hay registros en el catálogo.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($servicios_lista as $s): ?>
                                     <?php 
@@ -200,7 +246,10 @@ include __DIR__ . '/includes/header.php';
                                         $ubi = strtolower($s['ubicacion'] ?? 'jardin');
                                         $tipo = strtolower($s['tipo_registro'] ?? 'servicio_extra');
                                     ?>
-                                    <tr>
+                                    <tr class="fila-catalogo" 
+                                        data-tipo="<?= $tipo ?>" 
+                                        data-evento="<?= $cat.includes('social') ? 'social' : 'infantil' ?>" 
+                                        data-ubicacion="<?= strpos($ubi, 'carmelo') !== false ? 'carmelo' : 'jardin' ?>">
                                         <td class="ps-3">
                                             <?php if ($tipo === 'paquete'): ?>
                                                 <span class="badge badge-jardin rounded-pill"><i class="fa-solid fa-box me-1"></i> Paquete</span>
@@ -209,7 +258,7 @@ include __DIR__ . '/includes/header.php';
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?php if ($cat === 'social'): ?>
+                                            <?php if (strpos($cat, 'social') !== false): ?>
                                                 <span class="badge bg-dark text-white rounded-pill"><i class="fa-solid fa-glass-cheers me-1"></i> Social</span>
                                             <?php else: ?>
                                                 <span class="badge badge-amarillo rounded-pill"><i class="fa-solid fa-child me-1"></i> Infantil</span>
@@ -393,6 +442,42 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// LÓGICA DE FILTRADO DINÁMICO
+function filtrarTabla() {
+    let fTipo = document.getElementById('filtro_tipo').value;
+    let fEvento = document.getElementById('filtro_evento').value;
+    let fUbicacion = document.getElementById('filtro_ubicacion').value;
+
+    let filas = document.querySelectorAll('.fila-catalogo');
+    let visibles = 0;
+
+    filas.forEach(fila => {
+        let tipo = fila.getAttribute('data-tipo');
+        let evento = fila.getAttribute('data-evento');
+        let ubicacion = fila.getAttribute('data-ubicacion');
+
+        let matchTipo = (fTipo === 'todos' || tipo === fTipo);
+        let matchEvento = (fEvento === 'todos' || evento === fEvento);
+        let matchUbicacion = (fUbicacion === 'todos' || ubicacion === fUbicacion);
+
+        if (matchTipo && matchEvento && matchUbicacion) {
+            fila.style.display = '';
+            visibles++;
+        } else {
+            fila.style.display = 'none';
+        }
+    });
+
+    document.getElementById('contador_registros').innerText = visibles + ' Registros';
+}
+
+function limpiarFiltros() {
+    document.getElementById('filtro_tipo').value = 'todos';
+    document.getElementById('filtro_evento').value = 'todos';
+    document.getElementById('filtro_ubicacion').value = 'todos';
+    filtrarTabla();
+}
+
 function abrirModalNuevo() {
     document.getElementById('modalTitulo').innerHTML = '<i class="fa-solid fa-plus me-2" style="color: var(--color-rosa);"></i>Agregar Registro al Catálogo';
     document.getElementById('form-servicio').reset();
@@ -449,29 +534,37 @@ function cargarGaleriaServicio(idServicio, tipo) {
             return;
         }
 
-        const lista = Array.isArray(data) ? data : (data.data || []);
+        const registros = data.data || [];
 
-        if (lista.length === 0) {
+        if (registros.length === 0) {
             contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
             return;
         }
 
-        lista.forEach(item => {
-            let div = document.createElement('div');
-            div.className = 'thumb-container';
+        registros.forEach(concepto => {
+            let idGaleria = concepto.id_galeria;
+            let listaUrls = concepto.urls_completas || [];
 
-            let idGaleria = item.id_galeria || item.id;
-            let srcFinal = item.url_completa ? item.url_completa : `../${item.ruta_archivo}`;
+            if (listaUrls.length === 0) {
+                contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
+                return;
+            }
 
-            let mediaHTML = (item.tipo_archivo === 'video')
-                ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
-                : `<img src="${srcFinal}" class="preview-thumb">`;
+            listaUrls.forEach((srcFinal) => {
+                let div = document.createElement('div');
+                div.className = 'thumb-container';
 
-            div.innerHTML = `
-                ${mediaHTML}
-                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${idGaleria})">&times;</button>
-            `;
-            contenedor.appendChild(div);
+                let esVideo = srcFinal.match(/\.(mp4|mov)$/i);
+                let mediaHTML = esVideo
+                    ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
+                    : `<img src="${srcFinal}" class="preview-thumb">`;
+
+                div.innerHTML = `
+                    ${mediaHTML}
+                    <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${idGaleria})">&times;</button>
+                `;
+                contenedor.appendChild(div);
+            });
         });
     })
     .catch(err => {
