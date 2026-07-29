@@ -7,7 +7,6 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require_once 'auth_check.php';
-
 require_once __DIR__ . '/../db_config.php';
 
 $mensaje = '';
@@ -29,18 +28,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $telefono_cliente = trim($_POST['telefono_cliente'] ?? '');
 
             if (!empty($correo_cliente) && !empty($nombre_cliente)) {
-                $stmt_chk = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE correo_usuario = ? LIMIT 1");
+                // CORREGIDO: correo_usuario -> email
+                $stmt_chk = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE email = ? LIMIT 1");
                 $stmt_chk->execute([$correo_cliente]);
                 $user_found = $stmt_chk->fetch(PDO::FETCH_ASSOC);
 
                 if ($user_found) {
                     $id_usuario_final = $user_found['id_usuario'];
                 } else {
-                $pass_default = password_hash('fantasy2026', PASSWORD_BCRYPT);
-$id_empleado_logueado = $_SESSION['id_usuario'] ?? null; // Trae el ID del usuario actual en admin
-$stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, ?)");
-$stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default, $id_empleado_logueado]);   
-                $id_usuario_final = $pdo->lastInsertId();
+                    $pass_default = password_hash('fantasy2026', PASSWORD_BCRYPT);
+                    $id_empleado_logueado = $_SESSION['id_usuario'] ?? null;
+                    
+                    // CORREGIDO: correo_usuario -> email
+                    $stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, ?)");
+                    $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default, $id_empleado_logueado]);   
+                    $id_usuario_final = $pdo->lastInsertId();
                 }
             }
         }
@@ -59,8 +61,7 @@ $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telef
         // Asignar ID de sucursal según selección (1 = Jardín, 2 = Carmelo)
         $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
 
-        // 3. INSERTAR EVENTO (COLUMNAS ESTRICTAMENTE DE TU TABLA 'eventos')
-        // Columnas verificadas: id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado
+        // 3. INSERTAR EVENTO
         $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, ?, 'confirmado')";
         $stmt_event = $pdo->prepare($sql_event);
         $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
@@ -69,7 +70,6 @@ $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telef
 
         // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS) EN 'evento_servicio'
         if ($id_evento_creado) {
-            // Intentar vincular paquete base si existe la tabla pivote
             try {
                 if ($id_paquete) {
                     $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
@@ -82,7 +82,7 @@ $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telef
                     }
                 }
             } catch (Exception $e_pivot) {
-                // Si la tabla evento_servicio difiere, el evento principal ya quedó guardado en la BD
+                // Si la tabla evento_servicio difiere, el evento principal ya quedó guardado
             }
         }
 
@@ -101,11 +101,13 @@ $servicios_extra = [];
 if (isset($pdo)) {
     // Consultar lista de clientes (id_rol = 2)
     try {
-        $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, correo_usuario FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
+        // CORREGIDO: correo_usuario -> email
+        $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, email FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
         $clientes_lista = $stmt_cli->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         try {
-            $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, correo_usuario FROM usuarios WHERE LOWER(rol_usuario) = 'cliente' OR id_rol = 2 ORDER BY id_usuario DESC");
+            // CORREGIDO: correo_usuario -> email
+            $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, email FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
             $clientes_lista = $stmt_cli->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e2) {
             $clientes_lista = [];
@@ -153,9 +155,9 @@ if (isset($pdo)) {
     <div class="row">
         <?php 
         $sidebar_path = __DIR__ . '/includes/sidebar.php';
-if (file_exists($sidebar_path)) { 
-    include $sidebar_path; 
-}
+        if (file_exists($sidebar_path)) { 
+            include $sidebar_path; 
+        }
         ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
@@ -189,7 +191,8 @@ if (file_exists($sidebar_path)) {
                                     <option value="">-- Crear Nuevo Cliente Abajo --</option>
                                     <?php foreach ($clientes_lista as $cli): ?>
                                         <option value="<?= $cli['id_usuario'] ?>">
-                                            <?= htmlspecialchars(trim(($cli['nombre_usuario'] ?? '') . ' ' . ($cli['apellidos_usuario'] ?? ''))) ?> (<?= htmlspecialchars($cli['correo_usuario'] ?? '') ?>)
+                                            <!-- CORREGIDO: correo_usuario -> email -->
+                                            <?= htmlspecialchars(trim(($cli['nombre_usuario'] ?? '') . ' ' . ($cli['apellidos_usuario'] ?? ''))) ?> (<?= htmlspecialchars($cli['email'] ?? '') ?>)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
