@@ -5,7 +5,7 @@
 // require_once 'includes/auth_check.php';
 
 // Ajusta la ruta a tu archivo de conexión si está en config/ db.php o similar
-require_once '../config/db.php'; 
+require_once dirname(__DIR__) . '/db_config.php';
 
 header('Content-Type: application/json');
 
