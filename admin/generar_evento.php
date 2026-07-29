@@ -76,17 +76,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         
         $id_evento_creado = $pdo->lastInsertId();
 
-        // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS)
+        // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS) DE MANERA ESTÁNDAR
         if ($id_evento_creado) {
+            // Preparar INSERT unificado con subtotal y cantidad explícitos
+            $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
+            $stmt_info = $pdo->prepare("SELECT precio_servicio, tipo_cobro, es_por_persona FROM servicios WHERE id_servicio = ?");
+
+            // A) Insertar Paquete Base (se multiplica por el número de invitados)
             if ($id_paquete) {
-                $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
-                $stmt_es->execute([$id_evento_creado, $id_paquete]);
+                $stmt_info->execute([$id_paquete]);
+                $paq_info = $stmt_info->fetch(PDO::FETCH_ASSOC);
+
+                if ($paq_info) {
+                    $precio_paq = floatval($paq_info['precio_servicio']);
+                    $cant_paq = $num_personas;
+                    $subtotal_paq = $precio_paq * $num_personas;
+
+                    $stmt_es->execute([$id_evento_creado, $id_paquete, $cant_paq, $subtotal_paq]);
+                }
             }
 
+            // B) Insertar Servicios Extra
             if (!empty($_POST['extras']) && is_array($_POST['extras'])) {
-                $stmt_es_extra = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
                 foreach ($_POST['extras'] as $id_extra) {
-                    $stmt_es_extra->execute([$id_evento_creado, $id_extra]);
+                    $stmt_info->execute([$id_extra]);
+                    $ext_info = $stmt_info->fetch(PDO::FETCH_ASSOC);
+
+                    if ($ext_info) {
+                        $precio_ext = floatval($ext_info['precio_servicio']);
+                        $es_p_persona = ($ext_info['tipo_cobro'] === 'por_persona' || intval($ext_info['es_por_persona']) === 1);
+                        
+                        $cant_ext = $es_p_persona ? $num_personas : 1;
+                        $subtotal_ext = $es_p_persona ? ($precio_ext * $num_personas) : $precio_ext;
+
+                        $stmt_es->execute([$id_evento_creado, $id_extra, $cant_ext, $subtotal_ext]);
+                    }
                 }
             }
         }
@@ -474,7 +498,6 @@ function eliminarExtra(index) {
     actualizarCalculosEventos();
 }
 
-// MULTIPLICACIÓN GARANTIZADA
 function actualizarCalculosEventos() {
     let selectPaq = document.getElementById('select_paquete_base');
     let optPaq = selectPaq.options[selectPaq.selectedIndex];
@@ -484,7 +507,6 @@ function actualizarCalculosEventos() {
 
     if (optPaq && optPaq.value) {
         let precioUnitario = parseFloat(optPaq.getAttribute('data-precio')) || 0;
-        // Multiplica SIEMPRE el costo unitario por la cantidad de invitados
         subtotalPaquete = precioUnitario * numPersonas;
     }
 
