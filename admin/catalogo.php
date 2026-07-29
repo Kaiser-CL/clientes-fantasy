@@ -29,16 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $id_eliminar = $_POST['id_servicio'] ?? null;
         if ($id_eliminar) {
             try {
-                // 1. Obtener datos antes de eliminar para la bitácora
                 $stmtOld = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
                 $stmtOld->execute([$id_eliminar]);
                 $datosEliminados = $stmtOld->fetch(PDO::FETCH_ASSOC);
 
-                // 2. Eliminar registro
                 $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio = ?");
                 $stmt->execute([$id_eliminar]);
 
-                // 3. REGISTRO EN BITÁCORA
                 if (function_exists('registrarBitacora')) {
                     registrarBitacora($pdo, 'ELIMINAR', 'servicios', $id_eliminar, $datosEliminados, null);
                 }
@@ -79,7 +76,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             ];
 
             if ($id_servicio) {
-                // Obtener datos viejos para auditoría
                 $stmtOld = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
                 $stmtOld->execute([$id_servicio]);
                 $datosViejos = $stmtOld->fetch(PDO::FETCH_ASSOC);
@@ -106,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 }
             }
 
-            $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
+            $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente!";
             header("Location: catalogo.php");
             exit;
         } catch (PDOException $e) {
@@ -127,7 +123,6 @@ if (isset($pdo)) {
         
         $servicios_lista = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Calcular el número real de fotos/videos dentro del arreglo JSON
         foreach ($servicios_lista as &$item) {
             if (!empty($item['galeria_json'])) {
                 $fotos = json_decode($item['galeria_json'], true);
@@ -147,14 +142,17 @@ include __DIR__ . '/includes/header.php';
 
 <style>
     .card-custom { background: #ffffff; border-radius: 12px; border: 1px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .form-label { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem; }
-    .form-control, .form-select { border-radius: 8px; border: 1.5px solid #94a3b8; padding: 0.65rem 0.875rem; color: #0f172a; font-weight: 600; }
+    .form-label { font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem; }
+    .form-control, .form-select { border-radius: 8px; border: 1.5px solid #cbd5e1; padding: 0.45rem 0.75rem; color: #0f172a; font-weight: 600; font-size: 0.9rem; }
     .dropzone-area { border: 2.5px dashed var(--color-azul); background-color: #eff6ff; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s ease; }
     .dropzone-area:hover, .dropzone-area.dragover { background-color: #dbeafe; }
     .preview-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #cbd5e1; }
     .thumb-container { position: relative; display: inline-block; margin: 5px; }
     .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
-    .filter-card { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+    
+    /* BARRA DE FILTROS ESTILIZADA Y COMPACTA */
+    .filter-bar { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.75rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .filter-bar .form-select { max-width: 180px; }
 </style>
 
 <div class="container-fluid">
@@ -164,7 +162,7 @@ include __DIR__ . '/includes/header.php';
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
             <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
                 <h2 class="h3 mb-0 fw-bold" style="color: var(--color-morado);"><i class="fa-solid fa-layer-group me-2" style="color: var(--color-rosa);"></i>Gestión de Catálogo</h2>
-                <button class="btn btn-primary" onclick="abrirModalNuevo()">
+                <button class="btn btn-primary fw-bold" onclick="abrirModalNuevo()">
                     <i class="fa-solid fa-plus me-1"></i> Agregar Nuevo Registro
                 </button>
             </div>
@@ -182,36 +180,44 @@ include __DIR__ . '/includes/header.php';
                 </div>
             <?php endif; ?>
 
-            <!-- BARRA DE FILTROS EN TIEMPO REAL -->
-            <div class="filter-card p-3 mb-3">
-                <div class="row g-2 align-items-center">
-                    <div class="col-md-3">
-                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-filter me-1"></i>Tipo Registro</label>
+            <!-- BARRA DE FILTROS MODERNA Y FLUIDA -->
+            <div class="filter-bar mb-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center me-2">
+                        <i class="fa-solid fa-filter text-primary me-2"></i>
+                        <span class="fw-bold small text-uppercase text-secondary">Filtros:</span>
+                    </div>
+
+                    <div>
+                        <label class="form-label d-none d-md-block">Registro</label>
                         <select id="filtro_tipo" class="form-select form-select-sm" onchange="filtrarTabla()">
-                            <option value="todos">-- Todos --</option>
-                            <option value="paquete">Paquete</option>
-                            <option value="servicio_extra">Servicio Extra</option>
+                            <option value="todos">Todos los Tipos</option>
+                            <option value="paquete">Paquetes</option>
+                            <option value="servicio_extra">Servicios Extras</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-masks-theater me-1"></i>Tipo Evento</label>
+
+                    <div>
+                        <label class="form-label d-none d-md-block">Evento</label>
                         <select id="filtro_evento" class="form-select form-select-sm" onchange="filtrarTabla()">
-                            <option value="todos">-- Todos --</option>
+                            <option value="todos">Todos los Eventos</option>
                             <option value="infantil">Infantil</option>
                             <option value="social">Social</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label mb-1 small text-uppercase text-muted"><i class="fa-solid fa-location-dot me-1"></i>Ubicación</label>
+
+                    <div>
+                        <label class="form-label d-none d-md-block">Ubicación</label>
                         <select id="filtro_ubicacion" class="form-select form-select-sm" onchange="filtrarTabla()">
-                            <option value="todos">-- Todas --</option>
+                            <option value="todos">Todas las Ubicaciones</option>
                             <option value="jardin">Jardín</option>
                             <option value="carmelo">Carmelo</option>
                         </select>
                     </div>
-                    <div class="col-md-3 text-end pt-3">
-                        <button class="btn btn-sm btn-outline-secondary fw-bold w-100" onclick="limpiarFiltros()">
-                            <i class="fa-solid fa-rotate-left me-1"></i> Limpiar Filtros
+
+                    <div class="ms-auto align-self-end">
+                        <button class="btn btn-sm btn-outline-secondary fw-bold" onclick="limpiarFiltros()">
+                            <i class="fa-solid fa-rotate-left me-1"></i> Limpiar
                         </button>
                     </div>
                 </div>
@@ -245,11 +251,14 @@ include __DIR__ . '/includes/header.php';
                                         $cat = strtolower($s['categoria'] ?? 'infantil'); 
                                         $ubi = strtolower($s['ubicacion'] ?? 'jardin');
                                         $tipo = strtolower($s['tipo_registro'] ?? 'servicio_extra');
+
+                                        $dataEvento = (strpos($cat, 'social') !== false) ? 'social' : 'infantil';
+                                        $dataUbi = (strpos($ubi, 'carmelo') !== false) ? 'carmelo' : 'jardin';
                                     ?>
                                     <tr class="fila-catalogo" 
                                         data-tipo="<?= $tipo ?>" 
-                                        data-evento="<?= $cat.includes('social') ? 'social' : 'infantil' ?>" 
-                                        data-ubicacion="<?= strpos($ubi, 'carmelo') !== false ? 'carmelo' : 'jardin' ?>">
+                                        data-evento="<?= $dataEvento ?>" 
+                                        data-ubicacion="<?= $dataUbi ?>">
                                         <td class="ps-3">
                                             <?php if ($tipo === 'paquete'): ?>
                                                 <span class="badge badge-jardin rounded-pill"><i class="fa-solid fa-box me-1"></i> Paquete</span>
@@ -258,14 +267,14 @@ include __DIR__ . '/includes/header.php';
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?php if (strpos($cat, 'social') !== false): ?>
+                                            <?php if ($dataEvento === 'social'): ?>
                                                 <span class="badge bg-dark text-white rounded-pill"><i class="fa-solid fa-glass-cheers me-1"></i> Social</span>
                                             <?php else: ?>
                                                 <span class="badge badge-amarillo rounded-pill"><i class="fa-solid fa-child me-1"></i> Infantil</span>
                                             <?php endif; ?>
                                         </td>
                                         <td>
-                                            <?php if (strpos($ubi, 'carmelo') !== false): ?>
+                                            <?php if ($dataUbi === 'carmelo'): ?>
                                                 <span class="badge bg-secondary text-white rounded-pill"><i class="fa-solid fa-building me-1"></i> Carmelo</span>
                                             <?php else: ?>
                                                 <span class="badge badge-verde rounded-pill"><i class="fa-solid fa-tree me-1"></i> Jardín</span>
@@ -442,7 +451,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// LÓGICA DE FILTRADO DINÁMICO
+// LÓGICA DE FILTRADO DINÁMICO MEJORADA
 function filtrarTabla() {
     let fTipo = document.getElementById('filtro_tipo').value;
     let fEvento = document.getElementById('filtro_evento').value;
