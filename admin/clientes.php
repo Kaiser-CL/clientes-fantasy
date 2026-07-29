@@ -19,7 +19,9 @@ if (isset($_SESSION['error_db'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    // Procesar Registro de Nuevo Cliente
+    // -------------------------------------------------------------
+    // 1. REGISTRO DE NUEVO CLIENTE (Rol 2)
+    // -------------------------------------------------------------
     if (isset($_POST['accion']) && $_POST['accion'] === 'crear') {
         $nombre = trim($_POST['nombre_usuario']);
         $apellidos = trim($_POST['apellidos_usuario']);
@@ -39,7 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         exit;
     }
 
-    // Procesar Edición de Cliente
+    // -------------------------------------------------------------
+    // 2. EDICIÓN DE CLIENTE
+    // -------------------------------------------------------------
     if (isset($_POST['accion']) && $_POST['accion'] === 'editar') {
         $id_usuario = $_POST['id_usuario'];
         $nombre = trim($_POST['nombre_usuario']);
@@ -47,10 +51,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $correo = trim($_POST['correo_usuario']);
         $telefono = trim($_POST['telefono_usuario']);
         $estado = $_POST['estado_usuario'];
+        $nueva_pass = trim($_POST['contrasena'] ?? '');
 
         try {
+            // Actualización de datos generales del cliente
             $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, email = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_usuario]);
+
+            // Cambio de contraseña exclusivo si el rol actual es SuperAdmin y se ingresó un valor
+            if (esSuperAdmin() && !empty($nueva_pass)) {
+                $pass_hash = password_hash($nueva_pass, PASSWORD_DEFAULT);
+                $stmtPass = $pdo->prepare("UPDATE usuarios SET contrasena_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
+                $stmtPass->execute([$pass_hash, $id_usuario]);
+            }
+
             $_SESSION['mensaje_exito'] = "Cliente actualizado correctamente.";
         } catch (PDOException $e) {
             $_SESSION['error_db'] = "Error al actualizar cliente: " . $e->getMessage();
@@ -65,11 +79,11 @@ $clientes = [];
 if (isset($pdo)) {
     try {
         $sql = "SELECT u.id_usuario, u.nombre_usuario, u.apellidos_usuario, 
-               u.email, u.telefono_usuario, u.estado_usuario,
-               (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos
-        FROM usuarios u
-        WHERE u.id_rol = 2
-        ORDER BY u.id_usuario DESC";
+                       u.email, u.telefono_usuario, u.estado_usuario,
+                       (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos
+                FROM usuarios u
+                WHERE u.id_rol = 2
+                ORDER BY u.id_usuario DESC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute();
         $clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -177,12 +191,24 @@ if (isset($pdo)) {
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Correo Electrónico</label>
-                                                                <input type="email" name="email" value="<?php echo htmlspecialchars($cliente['email'] ?? ''); ?>" required>
+                                                                <input type="email" name="correo_usuario" class="form-control" value="<?= htmlspecialchars($c['email'] ?? '') ?>" required>
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Teléfono</label>
                                                                 <input type="text" name="telefono_usuario" class="form-control" value="<?= htmlspecialchars($c['telefono_usuario'] ?? '') ?>">
                                                             </div>
+
+                                                            <!-- Campo de contraseña restringido exclusivamente a SuperAdmin -->
+                                                            <?php if (esSuperAdmin()): ?>
+                                                                <div class="mb-3">
+                                                                    <label class="form-label fw-bold text-danger">Nueva Contraseña</label>
+                                                                    <input type="password" name="contrasena" class="form-control" placeholder="Dejar en blanco para mantener la actual">
+                                                                    <small class="form-text text-muted">
+                                                                        Solo tú como Superadministrador puedes redefinir contraseñas.
+                                                                    </small>
+                                                                </div>
+                                                            <?php endif; ?>
+
                                                             <div class="mb-3">
                                                                 <label class="form-label">Estado</label>
                                                                 <select name="estado_usuario" class="form-select">
