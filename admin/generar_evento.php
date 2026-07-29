@@ -54,8 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $fecha_evento = $_POST['fecha_evento'] ?? null;
         $hora_evento = $_POST['hora_evento'] ?? null;
         $salon_evento = $_POST['salon_evento'] ?? 'jardin';
-        $num_personas = intval($_POST['num_personas'] ?? 50);
-        $id_paquete = $_POST['id_paquete'] ?? null;
+        $num_personas = intval($_POST['num_personas'] ?? 0);
+        $id_paquete = $_POST['id_paquete_base'] ?? null;
 
         // Límite estricto de aforo para Jardín
         if (strtolower($salon_evento) === 'jardin' && $num_personas > 150) {
@@ -65,10 +65,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         // Asignar ID de sucursal según selección (1 = Jardín, 2 = Carmelo)
         $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
 
-        // 3. INSERTAR EVENTO
-        $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, ?, 'confirmado')";
-        $stmt_event = $pdo->prepare($sql_event);
-        $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
+        // 3. INSERTAR EVENTO (Guardando el num_personas)
+        try {
+            $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, num_personas, estado) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmado')";
+            $stmt_event = $pdo->prepare($sql_event);
+            $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento, $num_personas]);
+        } catch (PDOException $e_col) {
+            // Si la columna num_personas no existiera en la BD, intenta sin ella como fallback
+            $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, ?, 'confirmado')";
+            $stmt_event = $pdo->prepare($sql_event);
+            $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
+        }
         
         $id_evento_creado = $pdo->lastInsertId();
 
@@ -86,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     }
                 }
             } catch (Exception $e_pivot) {
-                // Registro pivot omitido si no coincide
+                // Evento principal se mantiene registrado si varia el esquema
             }
         }
 
@@ -99,8 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 
 // --- CONSULTAR CLIENTES Y CATÁLOGO ---
 $clientes_lista = [];
-$paquetes = [];
-$servicios_extra = [];
+$paquetes_catalogo = [];
+$extras_catalogo = [];
 
 if (isset($pdo)) {
     try {
@@ -110,20 +117,20 @@ if (isset($pdo)) {
         $clientes_lista = [];
     }
 
-    // Consultar catálogo de servicios completos con tipo_cobro, es_por_persona y ubicacion
+    // Consultar catálogo de Paquetes y Extras con sus atributos de cobro y ubicación
     try {
         $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
             WHERE (LOWER(tipo_registro) = 'paquete' OR LOWER(nombre_servicio) LIKE '%paquete%') 
               AND disponible_servicio = 1 
             ORDER BY nombre_servicio ASC");
-        $paquetes = $stmt_paquetes->fetchAll(PDO::FETCH_ASSOC);
+        $paquetes_catalogo = $stmt_paquetes->fetchAll(PDO::FETCH_ASSOC);
 
         $stmt_extras = $pdo->query("SELECT * FROM servicios 
             WHERE (LOWER(tipo_registro) = 'servicio_extra' OR tipo_registro IS NULL OR tipo_registro = '' OR LOWER(tipo_registro) = 'servicio') 
               AND LOWER(nombre_servicio) NOT LIKE '%paquete%' 
               AND disponible_servicio = 1 
             ORDER BY nombre_servicio ASC");
-        $servicios_extra = $stmt_extras->fetchAll(PDO::FETCH_ASSOC);
+        $extras_catalogo = $stmt_extras->fetchAll(PDO::FETCH_ASSOC);
 
     } catch (PDOException $e) {
         $error_db = "Error al consultar catálogo: " . $e->getMessage();
@@ -178,6 +185,7 @@ if (isset($pdo)) {
                     <!-- COLUMNA IZQUIERDA: CLIENTE Y DETALLES -->
                     <div class="col-lg-7">
                         
+                        <!-- Información del Cliente -->
                         <div class="card-custom">
                             <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-user me-2"></i>Información del Cliente</h5>
                             
@@ -242,11 +250,6 @@ if (isset($pdo)) {
                                     </select>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Número de Personas (Invitados)</label>
-                                    <input type="number" name="num_personas" id="num_personas" class="form-control" value="50" min="1" max="150" oninput="validarAforo()" required>
-                                    <small id="msg-aforo" class="text-danger fw-bold d-none mt-1">⚠️ Aforo máximo en Jardín alcanzado (150 personas).</small>
-                                </div>
-                                <div class="col-12">
                                     <label class="form-label">Nombre del Evento</label>
                                     <input type="text" name="nombre_evento" class="form-control" placeholder="Ej. Cumpleaños de Sofía" required>
                                 </div>
@@ -262,55 +265,69 @@ if (isset($pdo)) {
                     <!-- COLUMNA DERECHA: DATOS DEL EVENTO Y PAQUETES -->
                     <div class="col-lg-5">
                         <div class="card-custom">
-                            <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-box-open me-2"></i>Datos del Evento</h5>
+                            <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-receipt me-2"></i>Datos del Evento</h5>
 
-                            <div class="mb-4">
-                                <label class="form-label">Seleccionar Paquete Base</label>
-                                <select name="id_paquete" id="select_paquete" class="form-select" onchange="calcularTotales()" required>
-                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="0">-- Seleccionar Paquete Base --</option>
-                                    <?php foreach ($paquetes as $p): 
-                                        $es_pp = ($p['es_por_persona'] == 1 || strtolower($p['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
-                                        $ubi = strtolower($p['ubicacion'] ?? 'ambos');
+                            <!-- SELECCIONAR PAQUETE BASE -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Seleccionar Paquete Base</label>
+                                <select name="id_paquete_base" id="select_paquete_base" class="form-select" onchange="actualizarCalculosEventos()" required>
+                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="0">-- Seleccionar Paquete --</option>
+                                    <?php foreach ($paquetes_catalogo as $paq): 
+                                        $es_pp = ($paq['es_por_persona'] == 1 || strtolower($paq['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
+                                        $ubi = strtolower($paq['ubicacion'] ?? 'ambos');
                                     ?>
-                                        <option value="<?= $p['id_servicio'] ?>" 
-                                                data-precio="<?= $p['precio_servicio'] ?>" 
+                                        <option value="<?= $paq['id_servicio'] ?>" 
+                                                data-precio="<?= $paq['precio_servicio'] ?>" 
                                                 data-ubicacion="<?= $ubi ?>" 
-                                                data-por-persona="<?= $es_pp ?>">
-                                            <?= htmlspecialchars($p['nombre_servicio']) ?> ($<?= number_format((float)$p['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' c/u' : '' ?>)
+                                                data-por-persona="<?= $es_pp ?>"
+                                                data-tipo-cobro="<?= strtolower($paq['tipo_cobro'] ?? 'fijo') ?>">
+                                            <?= htmlspecialchars($paq['nombre_servicio']) ?> ($<?= number_format((float)$paq['precio_servicio'], 2) ?>)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
 
+                            <!-- SLIDER / CONTROL DESLIZANTE DE NÚMERO DE PERSONAS -->
+                            <div class="mb-3 bg-light p-3 rounded border" id="contenedor_slider_personas">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label for="num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
+                                    <span class="badge bg-primary fs-6 fw-bold" id="label_num_personas">0 personas</span>
+                                </div>
+                                <input type="range" class="form-range" id="num_personas_slider" name="num_personas" min="0" max="150" step="5" value="0" oninput="sincronizarPersonas(this.value)">
+                                <small id="msg_aforo_jardin" class="text-danger fw-bold d-none mt-1">⚠️ Aforo máximo para Jardín: 150 personas.</small>
+                            </div>
+
+                            <!-- SERVICIOS EXTRAS -->
                             <div class="d-flex justify-content-between align-items-center mb-2">
-                                <label class="form-label mb-0">Servicios Extra</label>
-                                <button type="button" class="btn btn-sm btn-primary fw-bold" onclick="abrirModalExtras()">
+                                <label class="form-label fw-bold mb-0">Servicios Extra</label>
+                                <button type="button" class="btn btn-sm btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalAgregarExtra" onclick="abrirModalExtra()">
                                     <i class="fa-solid fa-plus me-1"></i> Agregar Extra
                                 </button>
                             </div>
 
-                            <div id="contenedor-extras" class="border rounded p-3 text-center text-muted mb-4 bg-light">
-                                <small class="fw-bold">No hay servicios adicionales agregados</small>
+                            <div id="lista_extras_contenedor" class="border rounded p-3 mb-3 bg-light text-center">
+                                <span class="text-muted small fw-bold" id="empty_extras_msg">No hay servicios adicionales agregados</span>
+                                <div id="lista_extras_items"></div>
                             </div>
 
                             <hr>
 
-                            <div class="d-flex justify-content-between mb-2 fs-6">
-                                <span class="fw-bold text-secondary">Subtotal Paquete Base:</span>
-                                <span class="fw-bold text-dark" id="txt-subtotal-paquete">$0.00</span>
+                            <!-- RESUMEN DE PRECIOS DE REFERENCIA -->
+                            <div class="d-flex justify-content-between mb-1 fw-semibold">
+                                <span>Subtotal Paquete Base:</span>
+                                <span id="txt_subtotal_paquete">$0.00</span>
                             </div>
-                            <div class="d-flex justify-content-between mb-3 fs-6">
-                                <span class="fw-bold text-secondary">Subtotal Servicios Extra:</span>
-                                <span class="fw-bold text-dark" id="txt-subtotal-extras">$0.00</span>
+                            <div class="d-flex justify-content-between mb-2 fw-semibold">
+                                <span>Subtotal Servicios Extra:</span>
+                                <span id="txt_subtotal_extras">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center text-primary border-top pt-2 mt-2">
+                                <h5 class="fw-bold mb-0">TOTAL DE REFERENCIA:</h5>
+                                <h3 class="fw-bold mb-0" id="txt_total_evento">$0.00</h3>
                             </div>
 
-                            <div class="d-flex justify-content-between align-items-center pt-2 border-top mb-4">
-                                <h5 class="fw-bold text-dark m-0">TOTAL DE REFERENCIA:</h5>
-                                <h3 class="fw-bold text-primary m-0" id="txt-total-referencia">$0.00</h3>
-                            </div>
-
-                            <button type="submit" class="btn btn-primary w-100 py-2 fs-5 fw-bold">
-                                <i class="fa-solid fa-floppy-disk me-2"></i> Guardar Evento
+                            <button type="submit" class="btn btn-primary w-100 fw-bold mt-4 py-2 fs-5">
+                                <i class="fa-solid fa-floppy-disk me-1"></i> Guardar Evento
                             </button>
                         </div>
                     </div>
@@ -321,33 +338,45 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL SERVICIOS EXTRA -->
-<div class="modal fade" id="modalExtras" tabindex="-1" aria-hidden="true">
+<!-- MODAL AGREGAR SERVICIO EXTRA CON SLIDER DINÁMICO -->
+<div class="modal fade" id="modalAgregarExtra" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold"><i class="fa-solid fa-puzzle-piece text-primary me-2"></i>Agregar Servicio Extra</h5>
+                <h5 class="modal-title fw-bold"><i class="fa-solid fa-puzzle-piece me-2"></i>Agregar Servicio Extra</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <label class="form-label">Seleccionar Extra del Catálogo:</label>
-                <select id="select_extra_modal" class="form-select mb-3">
-                    <option value="">-- Seleccionar --</option>
-                    <?php foreach ($servicios_extra as $ext): 
-                        $es_pp = ($ext['es_por_persona'] == 1 || strtolower($ext['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
-                        $ubi = strtolower($ext['ubicacion'] ?? 'ambos');
-                    ?>
-                        <option value="<?= $ext['id_servicio'] ?>" 
-                                data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>" 
-                                data-precio="<?= $ext['precio_servicio'] ?>"
-                                data-ubicacion="<?= $ubi ?>"
-                                data-por-persona="<?= $es_pp ?>">
-                            <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' / persona' : '' ?>)
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Seleccionar Extra del Catálogo:</label>
+                    <select id="modal_select_extra" class="form-select" onchange="evaluarTipoExtra(this)">
+                        <option value="">-- Seleccionar Servicio --</option>
+                        <?php foreach ($extras_catalogo as $ext): 
+                            $es_pp = ($ext['es_por_persona'] == 1 || strtolower($ext['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
+                            $ubi = strtolower($ext['ubicacion'] ?? 'ambos');
+                        ?>
+                            <option value="<?= $ext['id_servicio'] ?>" 
+                                    data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>"
+                                    data-precio="<?= $ext['precio_servicio'] ?>"
+                                    data-ubicacion="<?= $ubi ?>"
+                                    data-por-persona="<?= $es_pp ?>"
+                                    data-tipo-cobro="<?= strtolower($ext['tipo_cobro'] ?? 'fijo') ?>">
+                                <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' / persona' : '' ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <!-- SLIDER DINÁMICO PARA EXTRA POR PERSONA (EJ: MESA DE DULCES / CARRITO DE SNACKS) -->
+                <div class="mb-3 bg-light p-3 rounded border d-none" id="modal_contenedor_personas_extra">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-bold mb-0">Personas para este Extra:</label>
+                        <span class="badge bg-success fs-6 fw-bold" id="modal_label_personas_extra">0 personas</span>
+                    </div>
+                    <input type="range" class="form-range" id="modal_slider_personas_extra" min="0" max="300" step="5" value="0" oninput="document.getElementById('modal_label_personas_extra').innerText = this.value + ' personas'">
+                </div>
             </div>
-            <div class="modal-footer bg-light">
+            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary fw-bold" onclick="confirmarAgregarExtra()">Agregar</button>
             </div>
@@ -357,11 +386,11 @@ if (isset($pdo)) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let extrasSeleccionados = [];
-let modalExtras = null;
+let extrasAgregados = [];
+let modalExtraBootstrap = null;
 
 document.addEventListener('DOMContentLoaded', function() {
-    modalExtras = new bootstrap.Modal(document.getElementById('modalExtras'));
+    modalExtraBootstrap = new bootstrap.Modal(document.getElementById('modalAgregarExtra'));
     filtrarPorUbicacion();
 });
 
@@ -379,56 +408,42 @@ function evaluarClienteExistente() {
     }
 }
 
-// Validar aforo máximo (150 personas en Jardín)
-function validarAforo() {
+// Sincronizar slider de personas con la interfaz y recalcular
+function sincronizarPersonas(valor) {
     let salon = document.getElementById('salon_evento').value.toLowerCase();
-    let numInput = document.getElementById('num_personas');
-    let msgAforo = document.getElementById('msg-aforo');
-    let val = parseInt(numInput.value) || 0;
+    let slider = document.getElementById('num_personas_slider');
+    let msgAforo = document.getElementById('msg_aforo_jardin');
 
-    if (salon === 'jardin' || salon.includes('jardín')) {
-        if (val > 150) {
-            numInput.value = 150;
-            msgAforo.classList.remove('d-none');
-        } else {
-            msgAforo.classList.add('d-none');
-        }
+    if (salon === 'jardin' && parseInt(valor) > 150) {
+        slider.value = 150;
+        valor = 150;
+        msgAforo.classList.remove('d-none');
     } else {
         msgAforo.classList.add('d-none');
     }
 
-    calcularTotales();
+    document.getElementById('label_num_personas').innerText = valor + ' personas';
+    actualizarCalculosEventos();
 }
 
-// Filtrar catálogo según la ubicación seleccionada (Jardín vs Carmelo)
+// Filtrar Paquetes y Extras según la ubicación elegida (Jardín vs Carmelo)
 function filtrarPorUbicacion() {
     let salon = document.getElementById('salon_evento').value.toLowerCase();
-    let esJardin = salon === 'jardin' || salon.includes('jardín');
-    let selectPaquete = document.getElementById('select_paquete');
-    let selectExtraModal = document.getElementById('select_extra_modal');
-
-    // 1. Filtrar Paquetes
-    let paqueteSeleccionadoValido = false;
-    Array.from(selectPaquete.options).forEach(opt => {
-        let ubi = opt.getAttribute('data-ubicacion') || 'ambos';
-        if (opt.value === '') return;
-
-        if (ubi === 'ambos' || (esJardin && ubi === 'jardin') || (!esJardin && ubi === 'carmelo')) {
-            opt.style.display = 'block';
-            opt.disabled = false;
-            if (opt.selected) paqueteSeleccionadoValido = true;
-        } else {
-            opt.style.display = 'none';
-            opt.disabled = true;
+    let esJardin = (salon === 'jardin');
+    
+    let slider = document.getElementById('num_personas_slider');
+    if (esJardin) {
+        slider.max = 150;
+        if (parseInt(slider.value) > 150) {
+            slider.value = 150;
+            sincronizarPersonas(150);
         }
-    });
-
-    if (!paqueteSeleccionadoValido) {
-        selectPaquete.value = '';
+    } else {
+        slider.max = 300;
     }
 
-    // 2. Filtrar Extras del Modal
-    Array.from(selectExtraModal.options).forEach(opt => {
+    let selectPaq = document.getElementById('select_paquete_base');
+    Array.from(selectPaq.options).forEach(opt => {
         let ubi = opt.getAttribute('data-ubicacion') || 'ambos';
         if (opt.value === '') return;
 
@@ -441,80 +456,120 @@ function filtrarPorUbicacion() {
         }
     });
 
-    validarAforo();
+    actualizarCalculosEventos();
 }
 
-function abrirModalExtras() {
-    document.getElementById('select_extra_modal').value = '';
-    modalExtras.show();
+function abrirModalExtra() {
+    document.getElementById('modal_select_extra').value = '';
+    document.getElementById('modal_contenedor_personas_extra').classList.add('d-none');
 }
 
+// Muestra u oculta el slider secundario en el modal de extras según si es por persona
+function evaluarTipoExtra(selectElem) {
+    let opt = selectElem.options[selectElem.selectedIndex];
+    if (!opt.value) return;
+
+    let esPorPersona = opt.getAttribute('data-por-persona') === '1' || opt.getAttribute('data-tipo-cobro') === 'por_persona';
+    let contenedorSlider = document.getElementById('modal_contenedor_personas_extra');
+    
+    if (esPorPersona) {
+        contenedorSlider.classList.remove('d-none');
+        // Asigna por defecto las personas del paquete base
+        let personasPaquete = document.getElementById('num_personas_slider').value;
+        document.getElementById('modal_slider_personas_extra').value = personasPaquete;
+        document.getElementById('modal_label_personas_extra').innerText = personasPaquete + ' personas';
+    } else {
+        contenedorSlider.classList.add('d-none');
+    }
+}
+
+// Agrega un extra a la lista temporal
 function confirmarAgregarExtra() {
-    let select = document.getElementById('select_extra_modal');
-    let option = select.options[select.selectedIndex];
-    if (!option.value) return;
+    let select = document.getElementById('modal_select_extra');
+    let id = select.value;
+    if (!id) return;
 
-    let id = option.value;
-    let nombre = option.getAttribute('data-nombre');
-    let precio = parseFloat(option.getAttribute('data-precio')) || 0;
-    let esPorPersona = option.getAttribute('data-por-persona') === '1';
+    let opt = select.options[select.selectedIndex];
+    let nombre = opt.getAttribute('data-nombre');
+    let precio = parseFloat(opt.getAttribute('data-precio')) || 0;
+    let esPorPersona = opt.getAttribute('data-por-persona') === '1' || opt.getAttribute('data-tipo-cobro') === 'por_persona';
+    
+    let personas = esPorPersona ? parseInt(document.getElementById('modal_slider_personas_extra').value) || 0 : 1;
+    let subtotalExtra = esPorPersona ? (precio * personas) : precio;
 
-    extrasSeleccionados.push({ id, nombre, precio, esPorPersona });
-    renderizarExtras();
-    calcularTotales();
-    modalExtras.hide();
+    extrasAgregados.push({
+        id_servicio: id,
+        nombre: nombre,
+        precio_unitario: precio,
+        personas: personas,
+        es_por_persona: esPorPersona,
+        subtotal: subtotalExtra
+    });
+
+    renderizarExtrasUI();
+    actualizarCalculosEventos();
+
+    modalExtraBootstrap.hide();
 }
 
-function eliminarExtra(index) {
-    extrasSeleccionados.splice(index, 1);
-    renderizarExtras();
-    calcularTotales();
-}
+function renderizarExtrasUI() {
+    let contenedorMsg = document.getElementById('empty_extras_msg');
+    let contenedorItems = document.getElementById('lista_extras_items');
+    contenedorItems.innerHTML = '';
 
-function renderizarExtras() {
-    let cont = document.getElementById('contenedor-extras');
-    if (extrasSeleccionados.length === 0) {
-        cont.className = "border rounded p-3 text-center text-muted mb-4 bg-light";
-        cont.innerHTML = '<small class="fw-bold">No hay servicios adicionales agregados</small>';
+    if (extrasAgregados.length === 0) {
+        contenedorMsg.classList.remove('d-none');
         return;
     }
 
-    cont.className = "border rounded p-2 mb-4 bg-white";
-    let html = '<ul class="list-group list-group-flush">';
-    extrasSeleccionados.forEach((item, index) => {
-        let textoCobro = item.esPorPersona ? ' c/u' : '';
-        html += `<li class="list-group-item d-flex justify-content-between align-items-center px-2 py-1">
-            <span class="fw-semibold text-dark fs-6">${item.nombre} ($${item.precio.toFixed(2)}${textoCobro})</span>
-            <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="eliminarExtra(${index})">&times;</button>
-            <input type="hidden" name="extras[]" value="${item.id}">
-        </li>`;
+    contenedorMsg.classList.add('d-none');
+
+    extrasAgregados.forEach((item, index) => {
+        let div = document.createElement('div');
+        div.className = 'd-flex justify-content-between align-items-center border-bottom py-2 text-start';
+        let detalleCant = item.es_por_persona ? ` <span class="text-muted small">(${item.personas} personas)</span>` : '';
+        
+        div.innerHTML = `
+            <div>
+                <strong class="text-dark fs-6">${item.nombre}</strong>${detalleCant}
+                <input type="hidden" name="extras[]" value="${item.id_servicio}">
+            </div>
+            <div class="d-flex align-items-center">
+                <span class="fw-bold me-2 text-primary">$${item.subtotal.toFixed(2)}</span>
+                <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="eliminarExtra(${index})">&times;</button>
+            </div>
+        `;
+        contenedorItems.appendChild(div);
     });
-    html += '</ul>';
-    cont.innerHTML = html;
 }
 
-function calcularTotales() {
-    let numPersonas = parseInt(document.getElementById('num_personas').value) || 1;
-    let selectPaquete = document.getElementById('select_paquete');
-    let optionPaquete = selectPaquete.options[selectPaquete.selectedIndex];
+function eliminarExtra(index) {
+    extrasAgregados.splice(index, 1);
+    renderizarExtrasUI();
+    actualizarCalculosEventos();
+}
 
-    let precioBasePaquete = parseFloat(optionPaquete.getAttribute('data-precio')) || 0;
-    let esPaquetePorPersona = optionPaquete.getAttribute('data-por-persona') === '1';
+// Recalcular Subtotales y Total de Referencia
+function actualizarCalculosEventos() {
+    let selectPaq = document.getElementById('select_paquete_base');
+    let optPaq = selectPaq.options[selectPaq.selectedIndex];
+    
+    let subtotalPaquete = 0;
+    let numPersonas = parseInt(document.getElementById('num_personas_slider').value) || 0;
 
-    // Subtotal del Paquete
-    let subtotalPaquete = esPaquetePorPersona ? (precioBasePaquete * numPersonas) : precioBasePaquete;
+    if (optPaq && optPaq.value) {
+        let precioBase = parseFloat(optPaq.getAttribute('data-precio')) || 0;
+        let esPP = optPaq.getAttribute('data-por-persona') === '1' || optPaq.getAttribute('data-tipo-cobro') === 'por_persona';
+        
+        subtotalPaquete = esPP ? (precioBase * numPersonas) : precioBase;
+    }
 
-    // Subtotal de Extras
-    let subtotalExtras = extrasSeleccionados.reduce((sum, item) => {
-        let costoItem = item.esPorPersona ? (item.precio * numPersonas) : item.precio;
-        return sum + costoItem;
-    }, 0);
+    let subtotalExtras = extrasAgregados.reduce((sum, item) => sum + item.subtotal, 0);
+    let totalGeneral = subtotalPaquete + subtotalExtras;
 
-    let total = subtotalPaquete + subtotalExtras;
-
-    document.getElementById('txt-subtotal-paquete').innerText = '$' + subtotalPaquete.toFixed(2);
-    document.getElementById('txt-subtotal-extras').innerText = '$' + subtotalExtras.toFixed(2);
-    document.getElementById('txt-total-referencia').innerText = '$' + total.toFixed(2);
+    document.getElementById('txt_subtotal_paquete').innerText = '$' + subtotalPaquete.toFixed(2);
+    document.getElementById('txt_subtotal_extras').innerText = '$' + subtotalExtras.toFixed(2);
+    document.getElementById('txt_total_evento').innerText = '$' + totalGeneral.toFixed(2);
 }
 </script>
 
