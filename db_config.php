@@ -1,21 +1,13 @@
 <?php
 // Archivo central de conexión para el Panel Administrativo y scripts PDO
 
-// 1. Definimos la ruta raíz absoluta de la aplicación.
-// Si este archivo está dentro de una carpeta (como /admin/ o similar),
-// dirname(__DIR__) retrocede automáticamente a la raíz de tu proyecto.
 if (!defined('ROOT_PATH')) {
     define('ROOT_PATH', __DIR__ . '/'); 
 }
 
-// 2. Apuntamos a la base de datos de la carpeta config usando la ruta absoluta
 $path_database = ROOT_PATH . 'config/database.php';
 
-// Si este archivo está dentro de la carpeta /admin/, usa la siguiente línea en su lugar:
-// $path_database = dirname(__DIR__) . '/config/database.php';
-
 if (!file_exists($path_database)) {
-    // Si no lo encuentra en la ruta directa, intenta subir un nivel
     $path_database = dirname(__DIR__) . '/config/database.php';
 }
 
@@ -27,8 +19,39 @@ require_once $path_database;
 
 try {
     $db = new Database();
-    // Reutilizamos la conexión PDO que genera la clase Database
     $pdo = $db->conectar();
 } catch (Exception $e) {
     die("Error crítico de conexión a la base de datos: " . $e->getMessage());
+}
+
+/**
+ * FUNCIÓN GLOBAL DE AUDITORÍA (BITÁCORA)
+ * Registra cualquier acción en la tabla historial_cambios
+ */
+function registrarBitacora($pdo, $accion, $tabla_afectada, $id_registro = 0, $datos_anteriores = null, $datos_nuevos = null) {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+
+    $id_usuario = $_SESSION['id_usuario'] ?? null;
+
+    // Convertir arrays o datos a JSON legibles si vienen como array
+    $ant_json = is_array($datos_anteriores) ? json_encode($datos_anteriores, JSON_UNESCAPED_UNICODE) : $datos_anteriores;
+    $nuev_json = is_array($datos_nuevos) ? json_encode($datos_nuevos, JSON_UNESCAPED_UNICODE) : $datos_nuevos;
+
+    try {
+        $sql = "INSERT INTO historial_cambios (id_usuario, accion, tabla_afectada, id_registro, fecha_cambio, datos_anteriores, datos_nuevos) 
+                VALUES (?, ?, ?, ?, NOW(), ?, ?)";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            $id_usuario,
+            strtoupper($accion), // 'AGREGAR', 'ACTUALIZAR', 'ELIMINAR'
+            strtolower($tabla_afectada),
+            $id_registro,
+            $ant_json,
+            $nuev_json
+        ]);
+    } catch (PDOException $e) {
+        error_log("Error al escribir en la bitácora: " . $e->getMessage());
+    }
 }
