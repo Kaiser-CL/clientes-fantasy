@@ -3,12 +3,20 @@
 
 require_once dirname(__DIR__) . '/db_config.php';
 
-header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+header('Content-Type: application/json; charset=UTF-8');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
 
-    // --- ACCIÓN: ELIMINAR FOTO ---
+    // --- ACCIÓN: ELIMINAR REGISTRO DE GALERÍA ---
     if ($accion === 'eliminar_foto') {
         $idGaleria = intval($_POST['id_galeria'] ?? 0);
 
@@ -18,25 +26,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         try {
-            // 1. Obtener la ruta del archivo para borrarlo del disco
-            $stmt = $pdo->prepare("SELECT ruta_archivo FROM servicio_galeria WHERE id_galeria = ?");
+            // 1. Obtener la lista de imágenes para borrar los archivos del servidor
+            $stmt = $pdo->prepare("SELECT url_archivo FROM galeria_conceptos WHERE id_galeria = ?");
             $stmt->execute([$idGaleria]);
-            $foto = $stmt->fetch(PDO::FETCH_ASSOC);
+            $registro = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($foto) {
-                $rutaFisica = dirname(__DIR__) . '/' . $foto['ruta_archivo'];
-                if (file_exists($rutaFisica)) {
-                    unlink($rutaFisica); // Elimina el archivo físico del servidor
+            if ($registro) {
+                $listaArchivos = json_decode($registro['url_archivo'], true);
+                if (is_array($listaArchivos)) {
+                    foreach ($listaArchivos as $archivo) {
+                        $rutaFisica = dirname(__DIR__) . '/' . ltrim($archivo, '/');
+                        if (file_exists($rutaFisica)) {
+                            unlink($rutaFisica);
+                        }
+                    }
+                } else {
+                    $rutaFisica = dirname(__DIR__) . '/' . ltrim($registro['url_archivo'], '/');
+                    if (file_exists($rutaFisica)) {
+                        unlink($rutaFisica);
+                    }
                 }
 
                 // 2. Eliminar el registro de la Base de Datos
-                $stmtDelete = $pdo->prepare("DELETE FROM servicio_galeria WHERE id_galeria = ?");
+                $stmtDelete = $pdo->prepare("DELETE FROM galeria_conceptos WHERE id_galeria = ?");
                 $stmtDelete->execute([$idGaleria]);
 
-                echo json_encode(['status' => 'success', 'message' => 'Archivo eliminado correctamente.']);
+                echo json_encode(['status' => 'success', 'message' => 'Registro y archivos eliminados correctamente.']);
                 exit;
             } else {
-                echo json_encode(['status' => 'error', 'message' => 'El archivo no existe en la base de datos.']);
+                echo json_encode(['status' => 'error', 'message' => 'El registro no existe en la base de datos.']);
                 exit;
             }
         } catch (PDOException $e) {
@@ -45,9 +63,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // --- ACCIÓN: SUBIR FOTOS ---
+    // --- ACCIÓN: SUBIR FOTOS COMO LISTA EN UN SOLO CAMPO ---
     $tipo = $_POST['tipo'] ?? ''; 
     $idEntidad = intval($_POST['id_entidad'] ?? $_POST['id'] ?? 0); 
+    $tituloConcepto = $_POST['titulo_concepto'] ?? 'Galería de fotos';
+    $descripcionConcepto = $_POST['descripcion_concepto'] ?? '';
+    $tipoArchivo = $_POST['tipo_archivo'] ?? 'imagen';
 
     if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
         echo json_encode(['status' => 'error', 'message' => 'Tipo o ID de entidad no válido.']);
@@ -63,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $archivosInput = $_FILES['archivos'] ?? $_FILES['imagenes'] ?? null;
 
     if ($archivosInput && !empty($archivosInput['name'][0])) {
-        $totalSubidos = 0;
+        $rutasGuardadas = [];
         $extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
         $totalArchivos = is_array($archivosInput['name']) ? count($archivosInput['name']) : 1;
 
@@ -77,27 +98,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if (!in_array($extension, $extensionesPermitidas)) continue; 
 
-                $tipoArchivo = in_array($extension, ['mp4', 'mov']) ? 'video' : 'imagen';
                 $nombreArchivo = uniqid("img_") . "." . $extension;
                 $rutaFisicaFinal = $directorioDestino . $nombreArchivo;
 
                 if (move_uploaded_file($tmpName, $rutaFisicaFinal)) {
-                    $rutaRelativaBD = "Images/" . $tipo . "/" . $idEntidad . "/" . $nombreArchivo;
-                    $sql = "INSERT INTO servicio_galeria (id_servicio, ruta_archivo, tipo_archivo) VALUES (?, ?, ?)";
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->execute([$idEntidad, $rutaRelativaBD, $tipoArchivo]);
-                    $totalSubidos++;
+                    $rutasGuardadas[] = "Images/" . $tipo . "/" . $idEntidad . "/" . $nombreArchivo;
                 }
             }
         }
 
-        echo json_encode([
-            'status' => 'success', 
-            'message' => "Se subieron {$totalSubidos} archivos correctamente.",
-            'id_entidad' => $idEntidad,
-            'tipo' => $tipo
-        ]);
-        exit;
+        if (count($rutasGuardadas) > 0) {
+            // Convertimos el arreglo de rutas a una cadena en formato JSON
+            $imagenesJson = json_encode($rutasGuardadas, JSON_UNESCAPED_SLASHES);
+
+            // Guardamos en la tabla galeria_conceptos
+            $sql = "INSERT INTO galeria_conceptos (id_servicio, titulo_concepto, descripcion_concepto, tipo_archivo, url_archivo) VALUES (?, ?, ?, ?, ?)";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$idEntidad, $tituloConcepto, $descripcionConcepto, $tipoArchivo, $imagenesJson]);
+
+            echo json_encode([
+                'status' => 'success', 
+                'message' => 'Se subieron ' . count($rutasGuardadas) . ' archivos correctamente en una sola lista.',
+                'id_entidad' => $idEntidad,
+                'tipo' => $tipo,
+                'imagenes' => $rutasGuardadas
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'No se pudo subir ningún archivo válido.']);
+            exit;
+        }
     } else {
         echo json_encode(['status' => 'error', 'message' => 'No se seleccionó ninguna imagen o archivo.']);
         exit;
