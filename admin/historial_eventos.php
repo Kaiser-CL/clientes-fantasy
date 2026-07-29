@@ -172,7 +172,6 @@ if (isset($pdo)) {
                                     $estado = strtolower($evt['estado'] ?? 'confirmado');
                                     $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : 'badge-confirmado');
                                     
-                                    // Sanitizado para pasar a JS mediante atributo HTML
                                     $data_json = htmlspecialchars(json_encode($evt), ENT_QUOTES, 'UTF-8');
                                 ?>
                                     <tr>
@@ -313,7 +312,6 @@ let bootstrapModalHistorial = null;
 document.addEventListener('DOMContentLoaded', function() {
     bootstrapModalHistorial = new bootstrap.Modal(document.getElementById('modalDesgloseEvento'));
 
-    // Bindeo seguro de clics en la tabla
     document.querySelectorAll('.btn-abrir-modal').forEach(btn => {
         btn.addEventListener('click', function() {
             let evtData = JSON.parse(this.getAttribute('data-evento'));
@@ -332,7 +330,10 @@ function abrirModalDesglose(evt) {
     document.getElementById('modal_cliente_nombre').innerText = clienteNom || 'Cliente General';
     document.getElementById('modal_cliente_telefono').innerText = evt.telefono_usuario || 'Sin teléfono';
     document.getElementById('modal_evento_fecha').innerText = (evt.fecha_evento || '') + ' ' + (evt.hora_evento || '');
-    document.getElementById('modal_evento_salon').innerText = 'Salón ' + (evt.ubicacion || 'Jardín');
+    
+    let ubiLimpia = (evt.ubicacion || 'Jardín').replace(/^salón\s+/i, '');
+    document.getElementById('modal_evento_salon').innerText = 'Salón ' + ubiLimpia;
+    
     document.getElementById('modal_estado_select').value = (evt.estado || 'confirmado').toLowerCase();
 
     let numPers = parseInt(evt.num_personas) || 50;
@@ -350,13 +351,14 @@ function actualizarPersonasModal(numPers) {
     let paqueteFound = null;
     let extrasList = [];
 
-    // DETECCIÓN ROBUSTA DEL PAQUETE BASE Y EXTRAS
+    // CLASIFICACIÓN ESTRICTA DEL PAQUETE
     servicios.forEach(s => {
         let tipo = (s.tipo_registro || '').toLowerCase();
         let nom = (s.nombre_servicio || '').toLowerCase();
 
-        // Si el primer servicio del evento no estaba categorizado, se toma como Paquete Base
-        if (!paqueteFound && (tipo === 'paquete' || nom.includes('paquete') || nom.includes('básico') || nom.includes('basico') || servicios.indexOf(s) === 0)) {
+        let esPaqueteStrict = (tipo === 'paquete') || nom.includes('paquete') || nom.includes('básico') || nom.includes('basico');
+
+        if (esPaqueteStrict && !paqueteFound) {
             paqueteFound = s;
         } else {
             extrasList.push(s);
@@ -365,24 +367,24 @@ function actualizarPersonasModal(numPers) {
 
     let totalCalculado = 0;
 
-    // Paquete Base
+    // 1. RENDER PAQUETE BASE
     let paqContainer = document.getElementById('modal_paquete_info');
     if (paqueteFound) {
         let precioU = parseFloat(paqueteFound.precio_servicio) || 0;
-        let subtotalPaq = precioU * numPers; // Multiplicación directa por personas
+        let subtotalPaq = precioU * numPers;
         totalCalculado += subtotalPaq;
 
         paqContainer.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
-                <span>${paqueteFound.nombre_servicio} ($${precioU.toFixed(2)} / persona)</span>
+                <span><strong>${paqueteFound.nombre_servicio}</strong> ($${precioU.toFixed(2)} / persona)</span>
                 <span class="badge bg-primary fs-6">$${subtotalPaq.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
             </div>
         `;
     } else {
-        paqContainer.innerHTML = '<span class="text-muted fw-bold">Sin Paquete Registrado</span>';
+        paqContainer.innerHTML = '<span class="text-muted fw-bold"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i> Sin Paquete Base Registrado</span>';
     }
 
-    // Extras
+    // 2. RENDER EXTRAS (COMO EL SHOW DE MAGO FARID) COMO COSTE FIJO
     let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
 
@@ -390,13 +392,13 @@ function actualizarPersonasModal(numPers) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
     } else {
         extrasList.forEach(ext => {
-            let precioU = parseFloat(ext.precio_servicio) || 0;
-            totalCalculado += precioU;
+            let precioFijo = parseFloat(ext.precio_servicio) || 0;
+            totalCalculado += precioFijo;
 
             let tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><strong class="text-dark">${ext.nombre_servicio}</strong></td>
-                <td class="fw-bold text-primary">$${precioU.toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
+                <td class="fw-bold text-primary">$${precioFijo.toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="eliminarExtraModal(${ext.id_evento_servicio})">
                         &times; Quitar
