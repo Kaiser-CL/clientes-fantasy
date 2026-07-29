@@ -104,7 +104,7 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
                             <img src="../Images/logo_salon1.png" alt="Logo Salón Fantasy" class="logo-img">
                         </div>
 
-                        <h4 class="card-title text-center fw-bold mb-4">Acceso al Sistema</h4>
+                        <h4 class="card-title text-center fw-bold mb-4">Administrar Clientes-Fantasy movil</h4>
 
                         <!-- Notificaciones de Error -->
                         <?php if (isset($_GET['error'])): ?>
