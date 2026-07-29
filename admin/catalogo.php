@@ -113,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// CONSULTAR CATÁLOGO Y CONTAR TODAS LAS FILAS DE LA TABLA servicio_galeria
+// CONSULTAR CATÁLOGO Y CONTAR TODAS LAS FILAS EN LA TABLA DE GALERÍA
 $servicios_lista = [];
 if (isset($pdo)) {
     try {
@@ -544,12 +544,23 @@ function cargarGaleriaServicio(idServicio, tipo) {
             div.className = 'thumb-container';
 
             let idGaleria = item.id_galeria || item.id;
-            let srcFinal = item.url_completa ? item.url_completa : `../${item.ruta_archivo}`;
+            
+            // SANITIZAR Y CONSTRUIR RUTA CORRECTA
+            let ruta = item.url_completa || item.ruta_archivo || '';
+            let srcFinal = '';
 
-            let esVideo = item.tipo_archivo === 'video' || srcFinal.match(/\.(mp4|mov)$/i);
+            if (ruta.startsWith('http://') || ruta.startsWith('https://')) {
+                srcFinal = ruta;
+            } else {
+                let limpia = ruta.replace(/^\/+/, '');
+                srcFinal = `../${limpia}`;
+            }
+
+            let esVideo = (item.tipo_archivo === 'video') || srcFinal.match(/\.(mp4|mov|webm)$/i);
+            
             let mediaHTML = esVideo
                 ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
-                : `<img src="${srcFinal}" class="preview-thumb">`;
+                : `<img src="${srcFinal}" class="preview-thumb" onerror="this.onerror=null; this.src='../Images/default.png';">`;
 
             div.innerHTML = `
                 ${mediaHTML}
