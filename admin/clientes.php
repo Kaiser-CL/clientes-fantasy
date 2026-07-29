@@ -140,7 +140,7 @@ if (isset($pdo)) {
                                         <tr>
                                             <td class="ps-3 fw-bold">#<?= htmlspecialchars($c['id_usuario']) ?></td>
                                             <td><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></td>
-                                            <td><?= htmlspecialchars($c['correo_usuario']) ?></td>
+                                            <td><?= htmlspecialchars($c['email'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($c['telefono_usuario'] ?? 'N/A') ?></td>
                                             <td><span class="badge bg-info text-dark"><?= htmlspecialchars($c['total_eventos']) ?> evento(s)</span></td>
                                             <td>
