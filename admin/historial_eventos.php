@@ -12,7 +12,7 @@ require_once __DIR__ . '/../db_config.php';
 $mensaje = '';
 $error_db = null;
 
-// --- PROCESAR CAMBIOS DE ESTADO O SERVICIOS EN EL MODAL ---
+// --- PROCESAR CAMBIOS EN EL EVENTO ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'guardar_cambios') {
         try {
@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $nuevo_estado = $_POST['estado_evento'] ?? 'confirmado';
             $num_personas = intval($_POST['num_personas_modal'] ?? 50);
 
-            // Actualizar estado y número de personas en el evento
             try {
                 $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
                 $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
@@ -29,69 +28,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 $stmt_upd->execute([$nuevo_estado, $id_evento]);
             }
 
-            // Agregar un nuevo servicio extra si se envió desde la modal
             if (!empty($_POST['nuevo_id_servicio'])) {
                 $id_serv = intval($_POST['nuevo_id_servicio']);
                 $stmt_add_s = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
                 $stmt_add_s->execute([$id_evento, $id_serv]);
             }
 
-            // Eliminar un servicio si se solicitó
             if (!empty($_POST['eliminar_id_evento_servicio'])) {
                 $id_es = intval($_POST['eliminar_id_evento_servicio']);
                 $stmt_del_s = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento_servicio = ?");
                 $stmt_del_s->execute([$id_es]);
             }
 
-            $mensaje = "Evento #EV-" . str_pad($id_evento, 5, '0', STR_PAD_LEFT) . " actualizado correctamente.";
+            $mensaje = "Evento #" . $id_evento . " actualizado correctamente.";
         } catch (Exception $e) {
             $error_db = "Error al actualizar evento: " . $e->getMessage();
         }
     }
 }
 
-// --- CONSULTAR LISTA DE EVENTOS Y CATÁLOGOS ---
+// --- CONSULTAR LISTA DE EVENTOS ---
 $eventos_lista = [];
 $servicios_catalogo = [];
 
 if (isset($pdo)) {
     try {
-        try {
-            $sql_eventos = "SELECT 
-                        e.id_evento,
-                        e.nombre_evento,
-                        e.fecha_evento,
-                        e.hora_evento,
-                        e.ubicacion,
-                        e.num_personas,
-                        e.estado,
-                        u.nombre_usuario,
-                        u.apellidos_usuario,
-                        u.telefono_usuario,
-                        u.email
-                    FROM eventos e
-                    LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
-                    ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
-            $stmt_e = $pdo->query($sql_eventos);
-            $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e_col) {
-            $sql_eventos = "SELECT 
-                        e.id_evento,
-                        e.nombre_evento,
-                        e.fecha_evento,
-                        e.hora_evento,
-                        e.ubicacion,
-                        e.estado,
-                        u.nombre_usuario,
-                        u.apellidos_usuario,
-                        u.telefono_usuario,
-                        u.email
-                    FROM eventos e
-                    LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
-                    ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
-            $stmt_e = $pdo->query($sql_eventos);
-            $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
-        }
+        $sql_eventos = "SELECT 
+                    e.id_evento,
+                    e.nombre_evento,
+                    e.fecha_evento,
+                    e.hora_evento,
+                    e.ubicacion,
+                    e.num_personas,
+                    e.estado,
+                    u.nombre_usuario,
+                    u.apellidos_usuario,
+                    u.telefono_usuario
+                FROM eventos e
+                LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
+                ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
+        $stmt_e = $pdo->query($sql_eventos);
+        $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($eventos_raw as $evt) {
             $id_evt = $evt['id_evento'];
@@ -101,9 +78,7 @@ if (isset($pdo)) {
                             s.id_servicio,
                             s.nombre_servicio,
                             s.precio_servicio,
-                            s.tipo_registro,
-                            s.es_por_persona,
-                            s.tipo_cobro
+                            s.tipo_registro
                           FROM evento_servicio es
                           INNER JOIN servicios s ON es.id_servicio = s.id_servicio
                           WHERE es.id_evento = ?";
@@ -119,7 +94,7 @@ if (isset($pdo)) {
     }
 
     try {
-        $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_registro, es_por_persona, tipo_cobro FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
+        $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
         $servicios_catalogo = $stmt_cat->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         $servicios_catalogo = [];
@@ -187,7 +162,7 @@ if (isset($pdo)) {
                         <tbody>
                             <?php if (empty($eventos_lista)): ?>
                                 <tr>
-                                    <td colspan="6" class="text-center py-4 text-muted fw-bold">No hay eventos registrados en la base de datos.</td>
+                                    <td colspan="6" class="text-center py-4 text-muted fw-bold">No hay eventos registrados.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($eventos_lista as $evt): 
@@ -196,6 +171,9 @@ if (isset($pdo)) {
                                     if (empty($cliente_nom)) $cliente_nom = 'Cliente General';
                                     $estado = strtolower($evt['estado'] ?? 'confirmado');
                                     $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : 'badge-confirmado');
+                                    
+                                    // Sanitizado para pasar a JS mediante atributo HTML
+                                    $data_json = htmlspecialchars(json_encode($evt), ENT_QUOTES, 'UTF-8');
                                 ?>
                                     <tr>
                                         <td>
@@ -213,7 +191,7 @@ if (isset($pdo)) {
                                         <td><span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($evt['ubicacion'] ?? 'Jardín')) ?></span></td>
                                         <td><span class="badge-estado <?= $badge_cls ?>"><?= ucfirst($estado) ?></span></td>
                                         <td class="text-center">
-                                            <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick='abrirModalDesglose(<?= json_encode($evt) ?>)'>
+                                            <button type="button" class="btn btn-sm btn-primary fw-bold btn-abrir-modal" data-evento="<?= $data_json ?>">
                                                 <i class="fa-solid fa-eye me-1"></i> Ver / Editar
                                             </button>
                                         </td>
@@ -228,7 +206,7 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL VER / EDITAR EVENTO CON CONTROL SLIDER DE INVITADOS -->
+<!-- MODAL VER / EDITAR EVENTO -->
 <div class="modal fade" id="modalDesgloseEvento" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -242,7 +220,7 @@ if (isset($pdo)) {
                     <input type="hidden" name="id_evento" id="modal_id_evento">
                     <input type="hidden" name="eliminar_id_evento_servicio" id="modal_eliminar_id_es">
 
-                    <!-- INFO GENERAL Y CLIENTE -->
+                    <!-- INFO GENERAL -->
                     <div class="row g-2 mb-3 bg-light p-3 rounded border">
                         <div class="col-md-6">
                             <strong class="text-secondary small">Cliente:</strong> <span id="modal_cliente_nombre" class="fw-bold text-dark"></span><br>
@@ -254,7 +232,7 @@ if (isset($pdo)) {
                         </div>
                     </div>
 
-                    <!-- SLIDER DE INVITADOS DENTRO DE LA MODAL -->
+                    <!-- SLIDER EN EL MODAL -->
                     <div class="mb-3 bg-white p-3 rounded border">
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <label for="modal_num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
@@ -269,34 +247,29 @@ if (isset($pdo)) {
                         <div id="modal_paquete_info" class="fs-6 fw-semibold">Cargando paquete...</div>
                     </div>
 
-                    <!-- SERVICIOS EXTRAS -->
+                    <!-- EXTRAS -->
                     <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-puzzle-piece me-2"></i>Servicios Adicionales Contratados:</h6>
                     <div class="table-responsive mb-3">
                         <table class="table table-bordered align-middle">
                             <thead class="table-light">
                                 <tr>
                                     <th>Servicio Extra</th>
-                                    <th>Precio Unitario / Subtotal</th>
+                                    <th>Subtotal</th>
                                     <th class="text-center">Acción</th>
                                 </tr>
                             </thead>
-                            <tbody id="modal_tabla_extras_body">
-                                <!-- Se llena dinámicamente -->
-                            </tbody>
+                            <tbody id="modal_tabla_extras_body"></tbody>
                         </table>
                     </div>
 
-                    <!-- AGREGAR NUEVO EXTRA AL EVENTO -->
+                    <!-- AGREGAR SERVICIO EXTRA -->
                     <div class="row g-2 align-items-center mb-3">
                         <div class="col-md-8">
                             <select name="nuevo_id_servicio" class="form-select border-success">
                                 <option value="">-- Agregar Servicio Extra Adicional --</option>
-                                <?php foreach ($servicios_catalogo as $serv): 
-                                    if (strtolower($serv['tipo_registro'] ?? '') === 'paquete') continue;
-                                    $es_pp = ($serv['es_por_persona'] == 1 || strtolower($serv['tipo_cobro'] ?? '') === 'por_persona') ? ' / persona' : '';
-                                ?>
+                                <?php foreach ($servicios_catalogo as $serv): ?>
                                     <option value="<?= $serv['id_servicio'] ?>">
-                                        <?= htmlspecialchars($serv['nombre_servicio']) ?> ($<?= number_format((float)$serv['precio_servicio'], 2) ?><?= $es_pp ?>)
+                                        <?= htmlspecialchars($serv['nombre_servicio']) ?> ($<?= number_format((float)$serv['precio_servicio'], 2) ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -306,13 +279,13 @@ if (isset($pdo)) {
                         </div>
                     </div>
 
-                    <!-- RESUMEN TOTAL DENTRO DEL MODAL -->
+                    <!-- TOTAL -->
                     <div class="d-flex justify-content-between align-items-center bg-light p-3 rounded border mb-3">
                         <h5 class="fw-bold mb-0">TOTAL RECALCULADO:</h5>
                         <h3 class="fw-bold text-primary mb-0" id="modal_total_recalculado">$0.00</h3>
                     </div>
 
-                    <!-- ESTADO DEL EVENTO -->
+                    <!-- ESTADO -->
                     <div class="mb-2">
                         <label class="form-label fw-bold">Estado del Evento:</label>
                         <select name="estado_evento" id="modal_estado_select" class="form-select">
@@ -339,26 +312,31 @@ let bootstrapModalHistorial = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     bootstrapModalHistorial = new bootstrap.Modal(document.getElementById('modalDesgloseEvento'));
+
+    // Bindeo seguro de clics en la tabla
+    document.querySelectorAll('.btn-abrir-modal').forEach(btn => {
+        btn.addEventListener('click', function() {
+            let evtData = JSON.parse(this.getAttribute('data-evento'));
+            abrirModalDesglose(evtData);
+        });
+    });
 });
 
 function abrirModalDesglose(evt) {
     modalEventoActual = evt;
     
-    let folio = "#EV-" . str_pad(evt.id_evento, 5, '0', STR_PAD_LEFT);
-    document.getElementById('modal_titulo_folio').innerText = "Desglose del Evento #" + evt.id_evento;
+    document.getElementById('modal_titulo_folio').innerText = "Desglose del Evento #EV-" + String(evt.id_evento).padStart(5, '0');
     document.getElementById('modal_id_evento').value = evt.id_evento;
     
-    let clienteNom = (evt.nombre_usuario || '') + ' ' + (evt.apellidos_usuario || '');
-    document.getElementById('modal_cliente_nombre').innerText = clienteNom.trim() || 'Cliente General';
+    let clienteNom = ((evt.nombre_usuario || '') + ' ' + (evt.apellidos_usuario || '')).trim();
+    document.getElementById('modal_cliente_nombre').innerText = clienteNom || 'Cliente General';
     document.getElementById('modal_cliente_telefono').innerText = evt.telefono_usuario || 'Sin teléfono';
-    document.getElementById('modal_evento_fecha').innerText = evt.fecha_evento + ' ' + evt.hora_evento;
+    document.getElementById('modal_evento_fecha').innerText = (evt.fecha_evento || '') + ' ' + (evt.hora_evento || '');
     document.getElementById('modal_evento_salon').innerText = 'Salón ' + (evt.ubicacion || 'Jardín');
     document.getElementById('modal_estado_select').value = (evt.estado || 'confirmado').toLowerCase();
 
-    // Sincronizar número de personas
     let numPers = parseInt(evt.num_personas) || 50;
-    let slider = document.getElementById('modal_num_personas_slider');
-    slider.value = numPers;
+    document.getElementById('modal_num_personas_slider').value = numPers;
     
     actualizarPersonasModal(numPers);
     bootstrapModalHistorial.show();
@@ -366,17 +344,19 @@ function abrirModalDesglose(evt) {
 
 function actualizarPersonasModal(numPers) {
     document.getElementById('modal_label_num_personas').innerText = numPers + ' personas';
-    
     if (!modalEventoActual) return;
 
     let servicios = modalEventoActual.servicios_asociados || [];
     let paqueteFound = null;
     let extrasList = [];
 
+    // DETECCIÓN ROBUSTA DEL PAQUETE BASE Y EXTRAS
     servicios.forEach(s => {
         let tipo = (s.tipo_registro || '').toLowerCase();
-        let esPaq = tipo === 'paquete' || (s.nombre_servicio || '').toLowerCase().includes('paquete');
-        if (esPaq && !paqueteFound) {
+        let nom = (s.nombre_servicio || '').toLowerCase();
+
+        // Si el primer servicio del evento no estaba categorizado, se toma como Paquete Base
+        if (!paqueteFound && (tipo === 'paquete' || nom.includes('paquete') || nom.includes('básico') || nom.includes('basico') || servicios.indexOf(s) === 0)) {
             paqueteFound = s;
         } else {
             extrasList.push(s);
@@ -385,25 +365,24 @@ function actualizarPersonasModal(numPers) {
 
     let totalCalculado = 0;
 
-    // Renderizar información del Paquete
+    // Paquete Base
     let paqContainer = document.getElementById('modal_paquete_info');
     if (paqueteFound) {
         let precioU = parseFloat(paqueteFound.precio_servicio) || 0;
-        let esPP = paqueteFound.es_por_persona == 1 || (paqueteFound.tipo_cobro || '').toLowerCase() === 'por_persona';
-        let subtotalPaq = (esPP || paqueteFound.tipo_cobro !== 'fijo') ? (precioU * numPers) : precioU;
+        let subtotalPaq = precioU * numPers; // Multiplicación directa por personas
         totalCalculado += subtotalPaq;
 
         paqContainer.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
                 <span>${paqueteFound.nombre_servicio} ($${precioU.toFixed(2)} / persona)</span>
-                <span class="badge bg-primary fs-6">$${subtotalPaq.toFixed(2)}</span>
+                <span class="badge bg-primary fs-6">$${subtotalPaq.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
             </div>
         `;
     } else {
-        paqContainer.innerHTML = '<span class="text-muted">Sin Paquete Registrado</span>';
+        paqContainer.innerHTML = '<span class="text-muted fw-bold">Sin Paquete Registrado</span>';
     }
 
-    // Renderizar Tabla de Extras
+    // Extras
     let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
 
@@ -412,17 +391,12 @@ function actualizarPersonasModal(numPers) {
     } else {
         extrasList.forEach(ext => {
             let precioU = parseFloat(ext.precio_servicio) || 0;
-            let esPP = ext.es_por_persona == 1 || (ext.tipo_cobro || '').toLowerCase() === 'por_persona';
-            let subtotalExt = esPP ? (precioU * numPers) : precioU;
-            totalCalculado += subtotalExt;
+            totalCalculado += precioU;
 
             let tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>
-                    <strong class="text-dark">${ext.nombre_servicio}</strong>
-                    ${esPP ? `<br><small class="text-muted">(${numPers} personas x $${precioU.toFixed(2)})</small>` : ''}
-                </td>
-                <td class="fw-bold text-primary">$${subtotalExt.toFixed(2)}</td>
+                <td><strong class="text-dark">${ext.nombre_servicio}</strong></td>
+                <td class="fw-bold text-primary">$${precioU.toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="eliminarExtraModal(${ext.id_evento_servicio})">
                         &times; Quitar
@@ -433,7 +407,7 @@ function actualizarPersonasModal(numPers) {
         });
     }
 
-    document.getElementById('modal_total_recalculado').innerText = '$' + totalCalculado.toFixed(2);
+    document.getElementById('modal_total_recalculado').innerText = '$' + totalCalculado.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 function eliminarExtraModal(idEventoServicio) {
