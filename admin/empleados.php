@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $pass = password_hash($_POST['password_usuario'] ?? '123456', PASSWORD_DEFAULT);
 
         try {
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
+           $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $pass]);
             $_SESSION['mensaje_exito'] = "Empleado guardado correctamente.";
         } catch (PDOException $e) {
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $estado = $_POST['estado_usuario'];
 
         try {
-            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
+           $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, email = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_u]);
             $_SESSION['mensaje_exito'] = "Empleado actualizado correctamente.";
         } catch (PDOException $e) {
@@ -151,7 +151,7 @@ if (isset($pdo)) {
                                         <tr>
                                             <td class="ps-3 fw-bold">#<?= htmlspecialchars($emp['id_usuario']) ?></td>
                                             <td><?= htmlspecialchars($emp['nombre_usuario'] . ' ' . $emp['apellidos_usuario']) ?></td>
-                                            <td><?= htmlspecialchars($emp['correo_usuario']) ?></td>
+                                            <td><?= htmlspecialchars($emp['email']) ?></td>
                                             <td><?= htmlspecialchars($emp['telefono_usuario'] ?? 'N/A') ?></td>
                                             <td><span class="badge bg-secondary">Empleado</span></td>
                                             <td>
