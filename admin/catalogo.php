@@ -29,16 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $id_eliminar = $_POST['id_servicio'] ?? null;
         if ($id_eliminar) {
             try {
-                $stmt_old = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
-                $stmt_old->execute([$id_eliminar]);
-                $old_data = $stmt_old->fetch(PDO::FETCH_ASSOC);
-
                 $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio = ?");
                 $stmt->execute([$id_eliminar]);
-
-                if (function_exists('registrar_bitacora') && $old_data) {
-                    registrar_bitacora($pdo, 'servicios', $id_eliminar, 'ELIMINAR', $old_data, null);
-                }
                 $_SESSION['mensaje_exito'] = "Registro eliminado correctamente del catálogo.";
                 header("Location: catalogo.php");
                 exit;
@@ -56,25 +48,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $precio = $_POST['precio_servicio'] ?? 0;
         $tipo_registro = $_POST['tipo_registro'] ?? 'paquete'; 
         $categoria = $_POST['categoria'] ?? 'infantil';
-
-        if ($tipo_registro === 'servicio_extra') {
-            $id_categoria = 3;
-        } else {
-            $id_categoria = ($categoria === 'infantil') ? 2 : 1;
-        }
+        $id_categoria = ($tipo_registro === 'servicio_extra') ? 3 : (($categoria === 'infantil') ? 2 : 1);
         $ubicacion = $_POST['ubicacion'] ?? 'jardin';
         $es_por_persona = isset($_POST['es_por_persona']) ? 1 : 0;
         $disponible = isset($_POST['disponible_servicio']) ? 1 : 0;
         $foto = trim($_POST['foto_servicio'] ?? '');
         if (empty($foto)) $foto = 'default.png';
-
-        // Buscar datos anteriores si es edición
-        $old_data = null;
-        if ($id_servicio) {
-            $stmt_old = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
-            $stmt_old->execute([$id_servicio]);
-            $old_data = $stmt_old->fetch(PDO::FETCH_ASSOC);
-        }
 
         try {
             if ($id_servicio) {
@@ -89,15 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, ubicacion, tipo_registro, id_categoria) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
-                $id_servicio = $pdo->lastInsertId();
-            }
-
-            // Registrar en bitácora
-            $stmt_new = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
-            $stmt_new->execute([$id_servicio]);
-            $new_data = $stmt_new->fetch(PDO::FETCH_ASSOC);
-            if (function_exists('registrar_bitacora')) {
-                registrar_bitacora($pdo, 'servicios', $id_servicio, $old_data ? 'ACTUALIZAR' : 'AGREGAR', $old_data, $new_data);
             }
 
             $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
@@ -111,14 +81,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// --- CONSULTAR REGISTROS ---
-$servicios = [];
+// CONSULTAR CATÁLOGO Y TOTAL DE MULTIMEDIA
+$servicios_lista = [];
 if (isset($pdo)) {
     try {
-        $stmt = $pdo->query("SELECT * FROM servicios ORDER BY id_servicio DESC");
-        $servicios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $pdo->query("SELECT s.*, 
+            (SELECT COUNT(*) FROM servicio_galeria g WHERE g.id_servicio = s.id_servicio) as total_fotos 
+            FROM servicios s ORDER BY s.id_servicio DESC");
+        $servicios_lista = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        $error_db = "Error al consultar la base de datos: " . $e->getMessage();
+        $servicios_lista = [];
     }
 }
 ?>
@@ -135,18 +107,20 @@ if (isset($pdo)) {
         .card-custom { background: #ffffff; border-radius: 12px; border: 2px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
         .form-label { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem; }
         .form-control, .form-select { border-radius: 8px; border: 1.5px solid #94a3b8; padding: 0.65rem 0.875rem; color: #0f172a; font-weight: 600; }
-        .table-responsive { border-radius: 8px; overflow: hidden; }
+        .dropzone-area { border: 2.5px dashed #3b82f6; background-color: #eff6ff; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s ease; }
+        .dropzone-area:hover, .dropzone-area.dragover { background-color: #dbeafe; border-color: #1d4ed8; }
+        .preview-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #cbd5e1; }
+        .thumb-container { position: relative; display: inline-block; margin: 5px; }
+        .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="container-fluid">
     <div class="row">
-        <?php        
+        <?php 
         $sidebar_path = __DIR__ . '/includes/sidebar.php';
-        if (file_exists($sidebar_path)) { 
-            include $sidebar_path; 
-        }
+        if (file_exists($sidebar_path)) { include $sidebar_path; }
         ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
@@ -173,7 +147,7 @@ if (isset($pdo)) {
             <div class="card-custom p-0 overflow-hidden">
                 <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
                     <h4 class="fw-bold m-0 text-dark"><i class="fa-solid fa-list text-primary me-2"></i>Elementos del Catálogo</h4>
-                    <span class="badge bg-dark fs-6"><?= count($servicios) ?> Registros</span>
+                    <span class="badge bg-dark fs-6"><?= count($servicios_lista) ?> Registros</span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -184,16 +158,16 @@ if (isset($pdo)) {
                                 <th>Ubicación</th>
                                 <th>Nombre</th>
                                 <th>Precio</th>
-                                <th>Modalidad</th>
+                                <th>Multimedia</th>
                                 <th>Estado</th>
                                 <th class="text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (empty($servicios)): ?>
+                            <?php if (empty($servicios_lista)): ?>
                                 <tr><td colspan="8" class="text-center py-4 text-muted fw-bold">No hay registros en el catálogo.</td></tr>
                             <?php else: ?>
-                                <?php foreach ($servicios as $s): ?>
+                                <?php foreach ($servicios_lista as $s): ?>
                                     <?php 
                                         $cat = strtolower($s['categoria'] ?? 'infantil'); 
                                         $ubi = strtolower($s['ubicacion'] ?? 'jardin');
@@ -223,17 +197,12 @@ if (isset($pdo)) {
                                         </td>
                                         <td>
                                             <strong class="text-dark fs-6"><?= htmlspecialchars($s['nombre_servicio']) ?></strong>
-                                            <?php if (!empty($s['descripcion_servicio'])): ?>
-                                                <br><small class="text-muted"><?= htmlspecialchars(substr($s['descripcion_servicio'], 0, 50)) . (strlen($s['descripcion_servicio']) > 50 ? '...' : '') ?></small>
-                                            <?php endif; ?>
                                         </td>
                                         <td class="fw-bold text-success fs-6">$<?= number_format((float)($s['precio_servicio'] ?? 0), 2) ?></td>
                                         <td>
-                                            <?php if (!empty($s['es_por_persona'])): ?>
-                                                <span class="badge bg-light text-dark border"><i class="fa-solid fa-user me-1"></i> Por Persona</span>
-                                            <?php else: ?>
-                                                <span class="badge bg-light text-dark border"><i class="fa-solid fa-tag me-1"></i> Precio Fijo</span>
-                                            <?php endif; ?>
+                                            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="abrirModalGaleria(<?= $s['id_servicio'] ?>, '<?= htmlspecialchars($s['nombre_servicio'], ENT_QUOTES) ?>')">
+                                                <i class="fa-solid fa-images text-warning me-1"></i> <?= $s['total_fotos'] ?> fotos/vid
+                                            </button>
                                         </td>
                                         <td>
                                             <span class="badge <?= !empty($s['disponible_servicio']) ? 'bg-success' : 'bg-danger' ?>">
@@ -265,7 +234,7 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL -->
+<!-- MODAL GUARDAR / EDITAR SERVICIO -->
 <div class="modal fade" id="modalCatalogo" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -276,7 +245,6 @@ if (isset($pdo)) {
             <form action="catalogo.php" method="POST" id="form-servicio">
                 <div class="modal-body">
                     <input type="hidden" name="id_servicio" id="id_servicio">
-                    
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">Tipo de Registro:</label>
@@ -285,7 +253,6 @@ if (isset($pdo)) {
                                 <option value="servicio_extra">Servicio Extra</option>
                             </select>
                         </div>
-
                         <div class="col-md-4">
                             <label class="form-label">Tipo de Evento:</label>
                             <select name="categoria" id="categoria" class="form-select" required>
@@ -293,7 +260,6 @@ if (isset($pdo)) {
                                 <option value="social">Social</option>
                             </select>
                         </div>
-
                         <div class="col-md-4">
                             <label class="form-label">Ubicación / Salón:</label>
                             <select name="ubicacion" id="ubicacion" class="form-select" required>
@@ -301,34 +267,24 @@ if (isset($pdo)) {
                                 <option value="carmelo">Carmelo</option>
                             </select>
                         </div>
-
                         <div class="col-md-8">
                             <label class="form-label">Nombre del Paquete o Servicio:</label>
                             <input type="text" name="nombre_servicio" id="nombre_servicio" class="form-control" placeholder="Ej: Carrito de Snacks, Paquete Básico Infantil..." required>
                         </div>
-
                         <div class="col-md-4">
                             <label class="form-label">Precio ($):</label>
                             <input type="number" step="0.01" name="precio_servicio" id="precio_servicio" class="form-control" placeholder="0.00" required>
                         </div>
-
                         <div class="col-12">
                             <label class="form-label">Descripción Detallada:</label>
                             <textarea name="descripcion_servicio" id="descripcion_servicio" class="form-control" rows="3" placeholder="Descripción breve de lo que incluye..."></textarea>
                         </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label">Nombre de Imagen (Opcional):</label>
-                            <input type="text" name="foto_servicio" id="foto_servicio" class="form-control" placeholder="default.png">
-                        </div>
-
                         <div class="col-md-6 d-flex align-items-center mt-4">
                             <div class="form-check form-switch fs-6">
                                 <input class="form-check-input" type="checkbox" name="es_por_persona" id="es_por_persona" value="1">
                                 <label class="form-check-label fw-bold text-dark" for="es_por_persona">¿El costo es POR PERSONA?</label>
                             </div>
                         </div>
-
                         <div class="col-12">
                             <div class="form-check form-switch fs-6">
                                 <input class="form-check-input" type="checkbox" name="disponible_servicio" id="disponible_servicio" value="1" checked>
@@ -346,12 +302,63 @@ if (isset($pdo)) {
     </div>
 </div>
 
+<!-- MODAL GESTIÓN DE GALERÍA MULTIMEDIA -->
+<div class="modal fade" id="modalGaleria" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fw-bold" id="titulo_modal_galeria"><i class="fa-solid fa-cloud-arrow-up me-2"></i>Galería de Fotos y Videos</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="galeria_id_servicio">
+
+                <!-- DROPZONE DRAG & DROP -->
+                <div class="dropzone-area mb-3" id="dropzone_target" onclick="document.getElementById('input_archivos_hidden').click()">
+                    <i class="fa-solid fa-cloud-arrow-up fa-3x text-primary mb-2"></i>
+                    <h5 class="fw-bold text-dark mb-1">Arrastra tus fotos o videos aquí</h5>
+                    <p class="text-muted small mb-0">o haz clic para seleccionar archivos desde tu equipo</p>
+                    <input type="file" id="input_archivos_hidden" multiple accept="image/*,video/*" class="d-none" onchange="subirArchivosGaleria(this.files)">
+                </div>
+
+                <div class="alert alert-warning py-2 px-3 small fw-bold mb-3">
+                    <i class="fa-solid fa-circle-info me-1"></i> Recomendación de Servidor:
+                    Para mantener los 50 GB de Hostinger óptimos, sube fotos comprimidas y videos cortos en .mp4.
+                </div>
+
+                <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-images me-1"></i> Archivos cargados actualmente:</h6>
+                <div id="contenedor_galeria_existente" class="d-flex flex-wrap bg-light p-3 rounded border" style="min-height: 120px;">
+                    <span class="text-muted small fw-bold m-auto" id="msg_galeria_vacia">Cargando elementos...</span>
+                </div>
+
+                <div id="status_upload_galeria" class="alert py-2 mt-3 d-none fw-bold small"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let modalInstancia = null;
+let bsModalGaleria = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     modalInstancia = new bootstrap.Modal(document.getElementById('modalCatalogo'));
+    bsModalGaleria = new bootstrap.Modal(document.getElementById('modalGaleria'));
+
+    let dropzone = document.getElementById('dropzone_target');
+    ['dragenter', 'dragover'].forEach(eName => {
+        dropzone.addEventListener(eName, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }, false);
+    });
+    ['dragleave', 'drop'].forEach(eName => {
+        dropzone.addEventListener(eName, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }, false);
+    });
+    dropzone.addEventListener('drop', (e) => {
+        subirArchivosGaleria(e.dataTransfer.files);
+    });
 });
 
 function abrirModalNuevo() {
@@ -367,16 +374,11 @@ function editarServicio(s) {
     document.getElementById('nombre_servicio').value = s.nombre_servicio || '';
     document.getElementById('precio_servicio').value = s.precio_servicio || '';
     document.getElementById('descripcion_servicio').value = s.descripcion_servicio || '';
-    document.getElementById('foto_servicio').value = s.foto_servicio || 'default.png';
     document.getElementById('es_por_persona').checked = (s.es_por_persona == 1);
     document.getElementById('disponible_servicio').checked = (s.disponible_servicio == 1);
     
     let tipo = (s.tipo_registro || '').toLowerCase();
-    if (tipo === 'paquete' || (s.nombre_servicio && s.nombre_servicio.toLowerCase().includes('paquete'))) {
-        document.getElementById('tipo_registro').value = 'paquete';
-    } else {
-        document.getElementById('tipo_registro').value = 'servicio_extra';
-    }
+    document.getElementById('tipo_registro').value = (tipo === 'paquete') ? 'paquete' : 'servicio_extra';
 
     let cat = (s.categoria || 'infantil').toLowerCase();
     document.getElementById('categoria').value = cat.includes('social') ? 'social' : 'infantil';
@@ -385,6 +387,97 @@ function editarServicio(s) {
     document.getElementById('ubicacion').value = ubi.includes('carmelo') ? 'carmelo' : 'jardin';
 
     modalInstancia.show();
+}
+
+function abrirModalGaleria(idServicio, nombreServicio) {
+    document.getElementById('galeria_id_servicio').value = idServicio;
+    document.getElementById('titulo_modal_galeria').innerText = "Multimedia: " + nombreServicio;
+    cargarGaleriaServicio(idServicio);
+    bsModalGaleria.show();
+}
+
+function cargarGaleriaServicio(idServicio) {
+    let contenedor = document.getElementById('contenedor_galeria_existente');
+    contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">Cargando elementos...</span>';
+
+    fetch(`../api/obtener_galeria.php?id_servicio=${idServicio}`)
+    .then(r => r.json())
+    .then(data => {
+        contenedor.innerHTML = '';
+        if (!data || data.length === 0) {
+            contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
+            return;
+        }
+
+        data.forEach(item => {
+            let div = document.createElement('div');
+            div.className = 'thumb-container';
+
+            let mediaHTML = (item.tipo_archivo === 'video')
+                ? `<video class="preview-thumb" src="../${item.ruta_archivo}" muted></video>`
+                : `<img src="../${item.ruta_archivo}" class="preview-thumb">`;
+
+            div.innerHTML = `
+                ${mediaHTML}
+                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${item.id_galeria})">&times;</button>
+            `;
+            contenedor.appendChild(div);
+        });
+    });
+}
+
+function subirArchivosGaleria(files) {
+    if (!files || files.length === 0) return;
+
+    let idServicio = document.getElementById('galeria_id_servicio').value;
+    let formData = new FormData();
+    formData.append('id_servicio', idServicio);
+
+    for (let i = 0; i < files.length; i++) {
+        formData.append('archivos_multimedia[]', files[i]);
+    }
+
+    let statusBox = document.getElementById('status_upload_galeria');
+    statusBox.className = 'alert alert-info py-2 fw-bold small';
+    statusBox.innerText = 'Subiendo y registrando archivos en el servidor...';
+    statusBox.classList.remove('d-none');
+
+    fetch('subir_galeria.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.exito) {
+            statusBox.className = 'alert alert-success py-2 fw-bold small';
+            statusBox.innerText = '✓ ' + data.mensaje;
+            cargarGaleriaServicio(idServicio);
+            setTimeout(() => { statusBox.classList.add('d-none'); }, 2500);
+        } else {
+            statusBox.className = 'alert alert-danger py-2 fw-bold small';
+            statusBox.innerText = 'Error: ' + data.error;
+        }
+    });
+}
+
+function eliminarFotoGaleria(idGaleria) {
+    if (confirm('¿Deseas borrar permanentemente este archivo del servidor?')) {
+        let formData = new FormData();
+        formData.append('accion', 'eliminar_foto');
+        formData.append('id_galeria', idGaleria);
+
+        fetch('subir_galeria.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.exito) {
+                let idServicio = document.getElementById('galeria_id_servicio').value;
+                cargarGaleriaServicio(idServicio);
+            }
+        });
+    }
 }
 </script>
 
