@@ -131,14 +131,13 @@ if (isset($pdo)) {
 
     try {
         $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
-            WHERE (LOWER(tipo_registro) = 'paquete' OR LOWER(nombre_servicio) LIKE '%paquete%') 
+            WHERE LOWER(tipo_registro) = 'paquete' 
               AND disponible_servicio = 1 
             ORDER BY nombre_servicio ASC");
         $paquetes_catalogo = $stmt_paquetes->fetchAll(PDO::FETCH_ASSOC);
 
         $stmt_extras = $pdo->query("SELECT * FROM servicios 
-            WHERE (LOWER(tipo_registro) = 'servicio_extra' OR tipo_registro IS NULL OR tipo_registro = '' OR LOWER(tipo_registro) = 'servicio') 
-              AND LOWER(nombre_servicio) NOT LIKE '%paquete%' 
+            WHERE (LOWER(tipo_registro) != 'paquete' OR tipo_registro IS NULL OR tipo_registro = '') 
               AND disponible_servicio = 1 
             ORDER BY nombre_servicio ASC");
         $extras_catalogo = $stmt_extras->fetchAll(PDO::FETCH_ASSOC);
@@ -335,7 +334,7 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL AGREGAR EXTRA (CON CAMPO DE CANTIDAD/PERSONAS) -->
+<!-- MODAL AGREGAR EXTRA (ETIQUETA DINÁMICA POR PERSONA / POR UNIDAD) -->
 <div class="modal fade" id="modalAgregarExtra" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -347,18 +346,21 @@ if (isset($pdo)) {
                 <div class="mb-3">
                     <label class="form-label fw-bold">Seleccionar Extra del Catálogo:</label>
                     <select id="modal_select_extra" class="form-select" onchange="evaluarModalExtraPrecio()">
-                        <option value="" data-precio="0">-- Seleccionar Servicio --</option>
-                        <?php foreach ($extras_catalogo as $ext): ?>
+                        <option value="" data-precio="0" data-tipo-cobro="fijo">-- Seleccionar Servicio --</option>
+                        <?php foreach ($extras_catalogo as $ext): 
+                            $es_p = ($ext['tipo_cobro'] === 'por_persona' || intval($ext['es_por_persona']) === 1) ? 'persona' : 'unidad';
+                        ?>
                             <option value="<?= $ext['id_servicio'] ?>" 
                                     data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>"
-                                    data-precio="<?= $ext['precio_servicio'] ?>">
+                                    data-precio="<?= $ext['precio_servicio'] ?>"
+                                    data-tipo-cobro="<?= $es_p ?>">
                                 <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Cantidad / Personas:</label>
+                    <label class="form-label fw-bold" id="lbl_modal_generar_extra_cant">Cantidad / Unidades:</label>
                     <input type="number" id="modal_cant_extra" class="form-control" value="1" min="1" oninput="evaluarModalExtraPrecio()">
                 </div>
                 <div class="text-primary fw-bold fs-6" id="lbl_subtotal_extra_preview"></div>
@@ -448,20 +450,31 @@ function abrirModalExtra() {
     document.getElementById('modal_select_extra').value = '';
     document.getElementById('modal_cant_extra').value = '1';
     document.getElementById('lbl_subtotal_extra_preview').innerText = '';
+    document.getElementById('lbl_modal_generar_extra_cant').innerText = 'Cantidad / Unidades:';
 }
 
 function evaluarModalExtraPrecio() {
     let select = document.getElementById('modal_select_extra');
     let opt = select.options[select.selectedIndex];
     let cant = parseInt(document.getElementById('modal_cant_extra').value) || 1;
-    let lbl = document.getElementById('lbl_subtotal_extra_preview');
+    let lblSubtotal = document.getElementById('lbl_subtotal_extra_preview');
+    let lblCant = document.getElementById('lbl_modal_generar_extra_cant');
 
     if (opt && opt.value) {
         let precio = parseFloat(opt.getAttribute('data-precio')) || 0;
+        let tipoCobro = opt.getAttribute('data-tipo-cobro');
+
+        if (tipoCobro === 'persona') {
+            lblCant.innerText = 'Número de Personas:';
+        } else {
+            lblCant.innerText = 'Cantidad / Unidades:';
+        }
+
         let total = precio * cant;
-        lbl.innerText = `Subtotal: $${precio.toFixed(2)} × ${cant} = $${total.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
+        lblSubtotal.innerText = `Subtotal: $${precio.toFixed(2)} × ${cant} = $${total.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
     } else {
-        lbl.innerText = '';
+        lblCant.innerText = 'Cantidad / Unidades:';
+        lblSubtotal.innerText = '';
     }
 }
 
