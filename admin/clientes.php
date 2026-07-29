@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 
         try {
             $id_empleado = $_SESSION['id_usuario'] ?? null;
-            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, estado_usuario, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, 1, ?)");
+            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, estado_usuario, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, 1, ?)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $password, $id_empleado]);
             $_SESSION['mensaje_exito'] = "Cliente agregado correctamente.";
         } catch (PDOException $e) {
@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $estado = $_POST['estado_usuario'];
 
         try {
-            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, correo_usuario = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
+            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, email = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 2");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_usuario]);
             $_SESSION['mensaje_exito'] = "Cliente actualizado correctamente.";
         } catch (PDOException $e) {
