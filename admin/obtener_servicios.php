@@ -11,22 +11,42 @@ try {
     $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'clientes-fantasy.onrender.com';
     $baseUrl = $protocolo . "://" . $host . "/";
 
-    // 2. Consultar catálogo de servicios disponibles
+    // 2. Parámetros de filtro
     $categoria = $_GET['categoria'] ?? null;
-    
+    $id_sucursal = $_GET['id_sucursal'] ?? $_GET['sucursal'] ?? null;
+    $ubicacion = $_GET['ubicacion'] ?? null; // Por si desde el front envías el texto ("Salón Carmelo", "Jardín")
+
+    // 3. Construcción dinámica de la consulta
+    $where = ["disponible_servicio = 1"];
+    $params = [];
+
+    // Filtro por categoría (si se requiere)
     if ($categoria) {
-        $stmt = $pdo->prepare("SELECT * FROM servicios WHERE disponible_servicio = 1 AND categoria = ? ORDER BY id_servicio DESC");
-        $stmt->execute([$categoria]);
-    } else {
-        $stmt = $pdo->query("SELECT * FROM servicios WHERE disponible_servicio = 1 ORDER BY id_servicio DESC");
+        $where[] = "categoria = ?";
+        $params[] = $categoria;
     }
 
+    // Filtro por Sucursal / Salón
+    // Trae los del salón específico O los generales (Ambos / NULL / 0)
+    if ($id_sucursal) {
+        $where[] = "(id_sucursal = ? OR id_sucursal IS NULL OR id_sucursal = 0)";
+        $params[] = $id_sucursal;
+    } elseif ($ubicacion) {
+        $where[] = "(ubicacion = ? OR ubicacion = 'Ambos' OR ubicacion IS NULL OR ubicacion = '')";
+        $params[] = $ubicacion;
+    }
+
+    $sqlWhere = implode(" AND ", $where);
+    $sql = "SELECT * FROM servicios WHERE {$sqlWhere} ORDER BY id_servicio DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $servicios = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Preparar consulta para obtener la galería multimedia de cada servicio
+    // 4. Preparar consulta para obtener la galería multimedia de cada servicio
     $stmtGaleria = $pdo->prepare("SELECT id_galeria, ruta_archivo, tipo_archivo FROM servicio_galeria WHERE id_servicio = ? ORDER BY id_galeria ASC LIMIT 5");
 
-    // 4. Recorrer y adosar el arreglo 'galeria' a cada servicio
+    // 5. Recorrer y adosar el arreglo 'galeria' a cada servicio
     foreach ($servicios as &$servicio) {
         $idServicio = $servicio['id_servicio'];
         $stmtGaleria->execute([$idServicio]);
@@ -46,7 +66,7 @@ try {
             ];
         }, $archivos);
 
-        // Guardamos el arreglo para la app móvil
+        // Guardamos el arreglo para la app móvil y panel
         $servicio['galeria'] = $galeria;
     }
 
