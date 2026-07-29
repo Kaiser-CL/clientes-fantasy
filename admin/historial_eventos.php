@@ -12,87 +12,87 @@ require_once __DIR__ . '/../db_config.php';
 $mensaje = '';
 $error_db = null;
 
-// --- PROCESAR OPERACIONES POST ---
+// --- PROCESAR CAMBIOS DE ESTADO O SERVICIOS EN EL MODAL ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    try {
-        // 1. AGREGAR SERVICIO EXTRA A EVENTO
-        if (isset($_POST['accion']) && $_POST['accion'] === 'agregar_servicio') {
-            $id_evento = $_POST['id_evento'] ?? null;
-            $id_servicio = $_POST['id_servicio_extra'] ?? null;
-
-            if ($id_evento && $id_servicio) {
-                $stmt_precio = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ? LIMIT 1");
-                $stmt_precio->execute([$id_servicio]);
-                $precio_unitario = (float)($stmt_precio->fetchColumn() ?: 0.00);
-
-                try {
-                    $stmt_add = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, subtotal_servicio_evento) VALUES (?, ?, ?)");
-                    $stmt_add->execute([$id_evento, $id_servicio, $precio_unitario]);
-                } catch (PDOException $e_sub) {
-                    try {
-                        $stmt_add = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad, subtotal) VALUES (?, ?, 1, ?)");
-                        $stmt_add->execute([$id_evento, $id_servicio, $precio_unitario]);
-                    } catch (PDOException $e_sub2) {
-                        $stmt_add = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
-                        $stmt_add->execute([$id_evento, $id_servicio]);
-                    }
-                }
-                $mensaje = "Servicio extra agregado correctamente al evento.";
-            }
-        }
-
-        // 2. ELIMINAR SERVICIO EXTRA DE EVENTO
-        if (isset($_POST['accion']) && $_POST['accion'] === 'eliminar_servicio') {
-            $id_evento_servicio = $_POST['id_evento_servicio'] ?? null;
-            if ($id_evento_servicio) {
-                $stmt_del = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento_servicio = ?");
-                $stmt_del->execute([$id_evento_servicio]);
-                $mensaje = "Servicio eliminado del evento.";
-            }
-        }
-
-        // 3. ACTUALIZAR ESTADO DEL EVENTO
-        if (isset($_POST['accion']) && $_POST['accion'] === 'actualizar_estado') {
-            $id_evento = $_POST['id_evento'] ?? null;
+    if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'guardar_cambios') {
+        try {
+            $id_evento = intval($_POST['id_evento']);
             $nuevo_estado = $_POST['estado_evento'] ?? 'confirmado';
+            $num_personas = intval($_POST['num_personas_modal'] ?? 50);
 
-            if ($id_evento) {
-                $stmt_est = $pdo->prepare("UPDATE eventos SET estado = ? WHERE id_evento = ?");
-                $stmt_est->execute([$nuevo_estado, $id_evento]);
-                $mensaje = "Estado del evento actualizado correctamente.";
+            // Actualizar estado y número de personas en el evento
+            try {
+                $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
+                $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
+            } catch (PDOException $e_col) {
+                $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ? WHERE id_evento = ?");
+                $stmt_upd->execute([$nuevo_estado, $id_evento]);
             }
+
+            // Agregar un nuevo servicio extra si se envió desde la modal
+            if (!empty($_POST['nuevo_id_servicio'])) {
+                $id_serv = intval($_POST['nuevo_id_servicio']);
+                $stmt_add_s = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
+                $stmt_add_s->execute([$id_evento, $id_serv]);
+            }
+
+            // Eliminar un servicio si se solicitó
+            if (!empty($_POST['eliminar_id_evento_servicio'])) {
+                $id_es = intval($_POST['eliminar_id_evento_servicio']);
+                $stmt_del_s = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento_servicio = ?");
+                $stmt_del_s->execute([$id_es]);
+            }
+
+            $mensaje = "Evento #EV-" . str_pad($id_evento, 5, '0', STR_PAD_LEFT) . " actualizado correctamente.";
+        } catch (Exception $e) {
+            $error_db = "Error al actualizar evento: " . $e->getMessage();
         }
-    } catch (PDOException $e) {
-        $error_db = "Error al actualizar evento: " . $e->getMessage();
     }
 }
 
-// --- CONSULTAR EVENTOS CON INFORMACIÓN DEL CLIENTE Y SERVICIOS ---
+// --- CONSULTAR LISTA DE EVENTOS Y CATÁLOGOS ---
 $eventos_lista = [];
 $servicios_catalogo = [];
 
 if (isset($pdo)) {
     try {
-        // Consulta principal de eventos relacionando con usuarios
-        $sql_eventos = "SELECT 
-                    e.id_evento,
-                    e.nombre_evento,
-                    e.fecha_evento,
-                    e.hora_evento,
-                    e.ubicacion,
-                    e.num_personas,
-                    e.estado,
-                    u.nombre_usuario,
-                    u.apellidos_usuario,
-                    u.telefono_usuario,
-                    u.email
-                FROM eventos e
-                LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
-                ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
-        $stmt_e = $pdo->query($sql_eventos);
-        $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
+        try {
+            $sql_eventos = "SELECT 
+                        e.id_evento,
+                        e.nombre_evento,
+                        e.fecha_evento,
+                        e.hora_evento,
+                        e.ubicacion,
+                        e.num_personas,
+                        e.estado,
+                        u.nombre_usuario,
+                        u.apellidos_usuario,
+                        u.telefono_usuario,
+                        u.email
+                    FROM eventos e
+                    LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
+                    ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
+            $stmt_e = $pdo->query($sql_eventos);
+            $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e_col) {
+            $sql_eventos = "SELECT 
+                        e.id_evento,
+                        e.nombre_evento,
+                        e.fecha_evento,
+                        e.hora_evento,
+                        e.ubicacion,
+                        e.estado,
+                        u.nombre_usuario,
+                        u.apellidos_usuario,
+                        u.telefono_usuario,
+                        u.email
+                    FROM eventos e
+                    LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
+                    ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
+            $stmt_e = $pdo->query($sql_eventos);
+            $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
+        }
 
-        // Para cada evento, consultar sus servicios asignados
         foreach ($eventos_raw as $evt) {
             $id_evt = $evt['id_evento'];
             
@@ -118,7 +118,6 @@ if (isset($pdo)) {
         $error_db = "Error al obtener eventos: " . $e->getMessage();
     }
 
-    // Consultar catálogo completo de servicios para el select de extras
     try {
         $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_registro, es_por_persona, tipo_cobro FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
         $servicios_catalogo = $stmt_cat->fetchAll(PDO::FETCH_ASSOC);
@@ -138,7 +137,10 @@ if (isset($pdo)) {
     <style>
         body { min-height: 100vh; background-color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
         .card-custom { background: #ffffff; border-radius: 12px; border: 2px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .badge-estado { font-size: 0.85rem; font-weight: 700; padding: 0.4em 0.8em; border-radius: 6px; }
+        .badge-estado { padding: 0.5em 0.8em; font-size: 0.85rem; border-radius: 6px; font-weight: 700; text-transform: uppercase; }
+        .badge-confirmado { background-color: #10b981; color: white; }
+        .badge-pendiente { background-color: #f59e0b; color: white; }
+        .badge-cancelado { background-color: #ef4444; color: white; }
     </style>
 </head>
 <body>
@@ -147,14 +149,12 @@ if (isset($pdo)) {
     <div class="row">
         <?php 
         $sidebar_path = __DIR__ . '/includes/sidebar.php';
-        if (file_exists($sidebar_path)) { 
-            include $sidebar_path; 
-        }
+        if (file_exists($sidebar_path)) { include $sidebar_path; }
         ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="h3 mb-0 fw-bold text-dark"><i class="fa-solid fa-calendar-check text-primary me-2"></i>Historial de Eventos</h2>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h3 fw-bold text-dark"><i class="fa-solid fa-calendar-check text-primary me-2"></i>Historial de Eventos</h2>
                 <a href="generar_evento.php" class="btn btn-primary fw-bold"><i class="fa-solid fa-plus me-1"></i> Nuevo Evento</a>
             </div>
 
@@ -190,34 +190,31 @@ if (isset($pdo)) {
                                     <td colspan="6" class="text-center py-4 text-muted fw-bold">No hay eventos registrados en la base de datos.</td>
                                 </tr>
                             <?php else: ?>
-                                <?php foreach ($eventos_lista as $evt): ?>
+                                <?php foreach ($eventos_lista as $evt): 
+                                    $folio = "#EV-" . str_pad($evt['id_evento'], 5, '0', STR_PAD_LEFT);
+                                    $cliente_nom = trim(($evt['nombre_usuario'] ?? '') . ' ' . ($evt['apellidos_usuario'] ?? ''));
+                                    if (empty($cliente_nom)) $cliente_nom = 'Cliente General';
+                                    $estado = strtolower($evt['estado'] ?? 'confirmado');
+                                    $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : 'badge-confirmado');
+                                ?>
                                     <tr>
                                         <td>
-                                            <span class="fw-bold text-primary">#EV-<?= str_pad($evt['id_evento'], 5, '0', STR_PAD_LEFT) ?></span>
-                                            <div class="fw-bold text-dark"><?= htmlspecialchars($evt['nombre_evento']) ?></div>
+                                            <strong class="text-primary"><?= $folio ?></strong><br>
+                                            <span class="fw-semibold text-dark"><?= htmlspecialchars($evt['nombre_evento']) ?></span>
                                         </td>
                                         <td>
-                                            <div class="fw-bold"><?= htmlspecialchars(trim(($evt['nombre_usuario'] ?? '') . ' ' . ($evt['apellidos_usuario'] ?? ''))) ?></div>
-                                            <small class="text-muted"><i class="fa-solid fa-phone me-1"></i><?= htmlspecialchars($evt['telefono_usuario'] ?? 'N/A') ?></small>
+                                            <span class="fw-bold text-dark"><?= htmlspecialchars($cliente_nom) ?></span><br>
+                                            <small class="text-muted"><i class="fa-solid fa-phone me-1"></i><?= htmlspecialchars($evt['telefono_usuario'] ?? 'Sin tel') ?></small>
                                         </td>
                                         <td>
-                                            <div class="fw-bold"><i class="fa-regular fa-calendar me-1"></i><?= htmlspecialchars($evt['fecha_evento']) ?></div>
-                                            <small class="text-muted"><i class="fa-regular fa-clock me-1"></i><?= htmlspecialchars($evt['hora_evento']) ?></small>
+                                            <i class="fa-solid fa-calendar me-1 text-secondary"></i><?= htmlspecialchars($evt['fecha_evento']) ?><br>
+                                            <small class="text-muted"><i class="fa-solid fa-clock me-1"></i><?= htmlspecialchars($evt['hora_evento']) ?></small>
                                         </td>
-                                        <td class="fw-semibold text-capitalize"><?= htmlspecialchars($evt['ubicacion'] ?? 'General') ?></td>
-                                        <td>
-                                            <?php 
-                                                $est = strtolower($evt['estado'] ?? 'pendiente');
-                                                $class_badge = 'bg-secondary';
-                                                if ($est === 'confirmado' || $est === 'activo') $class_badge = 'bg-success';
-                                                elseif ($est === 'cancelado') $class_badge = 'bg-danger';
-                                                elseif ($est === 'pendiente') $class_badge = 'bg-warning text-dark';
-                                            ?>
-                                            <span class="badge badge-estado <?= $class_badge ?>"><?= ucfirst($est) ?></span>
-                                        </td>
+                                        <td><span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($evt['ubicacion'] ?? 'Jardín')) ?></span></td>
+                                        <td><span class="badge-estado <?= $badge_cls ?>"><?= ucfirst($estado) ?></span></td>
                                         <td class="text-center">
                                             <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick='abrirModalDesglose(<?= json_encode($evt) ?>)'>
-                                                <i class="fa-regular fa-eye me-1"></i> Ver / Editar
+                                                <i class="fa-solid fa-eye me-1"></i> Ver / Editar
                                             </button>
                                         </td>
                                     </tr>
@@ -231,174 +228,219 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL DESGLOSE Y EDICIÓN DEL EVENTO -->
-<div class="modal fade" id="modalDesglose" tabindex="-1" aria-hidden="true">
+<!-- MODAL VER / EDITAR EVENTO CON CONTROL SLIDER DE INVITADOS -->
+<div class="modal fade" id="modalDesgloseEvento" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold" id="modal-titulo-evento">Desglose del Evento</h5>
+                <h5 class="modal-title fw-bold" id="modal_titulo_folio">Desglose del Evento</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                
-                <!-- DATOS DEL CLIENTE Y SALÓN -->
-                <div class="row mb-3 bg-light p-3 rounded border">
-                    <div class="col-md-6 mb-2">
-                        <strong>Cliente:</strong> <span id="m-cliente-nombre">---</span>
-                    </div>
-                    <div class="col-md-6 mb-2 text-md-end">
-                        <strong>Fecha:</strong> <span id="m-fecha">---</span>
-                    </div>
-                    <div class="col-md-6">
-                        <strong>Teléfono:</strong> <span id="m-cliente-tel">---</span>
-                    </div>
-                    <div class="col-md-6 text-md-end">
-                        <strong>Salón:</strong> <span id="m-salon">---</span>
-                    </div>
-                </div>
+            <form action="" method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="accion_evento" value="guardar_cambios">
+                    <input type="hidden" name="id_evento" id="modal_id_evento">
+                    <input type="hidden" name="eliminar_id_evento_servicio" id="modal_eliminar_id_es">
 
-                <!-- DETALLES DE CONTRATACIÓN (PAQUETE Y ASISTENTES) -->
-                <div class="alert alert-primary mb-3 py-2 px-3">
-                    <div class="fw-bold fs-6 mb-1"><i class="fa-solid fa-box-open me-2"></i> Paquete Contratado:</div>
-                    <div id="m-paquete-info" class="fs-6 text-dark fw-semibold">Cargando datos...</div>
-                </div>
-
-                <h6 class="fw-bold text-primary mb-2"><i class="fa-solid fa-puzzle-piece me-1"></i> Servicios Adicionales Contratados</h6>
-                
-                <!-- TABLA DE SERVICIOS ADICIONALES -->
-                <div class="table-responsive mb-3">
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Servicio Extra</th>
-                                <th>Precio Unitario</th>
-                                <th style="width: 100px;" class="text-center">Acción</th>
-                            </tr>
-                        </thead>
-                        <tbody id="m-tabla-servicios-body">
-                            <!-- Renderizado con JS -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- FORMULARIO AGREGAR SERVICIO EXTRA -->
-                <form action="" method="POST" class="row g-2 align-items-center mb-4">
-                    <input type="hidden" name="accion" value="agregar_servicio">
-                    <input type="hidden" name="id_evento" id="m-input-id-evento-add">
-                    
-                    <div class="col-md-8">
-                        <select name="id_servicio_extra" class="form-select" required>
-                            <option value="">-- Agregar Servicio Adicional --</option>
-                            <?php foreach ($servicios_catalogo as $sc): 
-                                $es_pp = ($sc['es_por_persona'] == 1 || strtolower($sc['tipo_cobro'] ?? '') === 'por_persona') ? ' / persona' : '';
-                            ?>
-                                <option value="<?= $sc['id_servicio'] ?>">
-                                    <?= htmlspecialchars($sc['nombre_servicio']) ?> ($<?= number_format((float)$sc['precio_servicio'], 2) ?><?= $es_pp ?>)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                    <!-- INFO GENERAL Y CLIENTE -->
+                    <div class="row g-2 mb-3 bg-light p-3 rounded border">
+                        <div class="col-md-6">
+                            <strong class="text-secondary small">Cliente:</strong> <span id="modal_cliente_nombre" class="fw-bold text-dark"></span><br>
+                            <strong class="text-secondary small">Teléfono:</strong> <span id="modal_cliente_telefono"></span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="text-secondary small">Fecha:</strong> <span id="modal_evento_fecha"></span><br>
+                            <strong class="text-secondary small">Salón:</strong> <span id="modal_evento_salon" class="fw-bold"></span>
+                        </div>
                     </div>
-                    <div class="col-md-4">
-                        <button type="submit" class="btn btn-success w-100 fw-bold">
-                            <i class="fa-solid fa-plus me-1"></i> Agregar Extra
-                        </button>
+
+                    <!-- SLIDER DE INVITADOS DENTRO DE LA MODAL -->
+                    <div class="mb-3 bg-white p-3 rounded border">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label for="modal_num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
+                            <span class="badge bg-primary fs-6 fw-bold" id="modal_label_num_personas">50 personas</span>
+                        </div>
+                        <input type="range" class="form-range" id="modal_num_personas_slider" name="num_personas_modal" min="0" max="300" step="5" value="50" oninput="actualizarPersonasModal(this.value)">
                     </div>
-                </form>
 
-                <hr>
+                    <!-- PAQUETE CONTRATADO -->
+                    <div class="alert alert-primary py-2 mb-3">
+                        <h6 class="fw-bold mb-1"><i class="fa-solid fa-box-open me-2"></i>Paquete Contratado:</h6>
+                        <div id="modal_paquete_info" class="fs-6 fw-semibold">Cargando paquete...</div>
+                    </div>
 
-                <!-- FORMULARIO CAMBIAR ESTADO -->
-                <form action="" method="POST" class="row align-items-center">
-                    <input type="hidden" name="accion" value="actualizar_estado">
-                    <input type="hidden" name="id_evento" id="m-input-id-evento-est">
+                    <!-- SERVICIOS EXTRAS -->
+                    <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-puzzle-piece me-2"></i>Servicios Adicionales Contratados:</h6>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Servicio Extra</th>
+                                    <th>Precio Unitario / Subtotal</th>
+                                    <th class="text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modal_tabla_extras_body">
+                                <!-- Se llena dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
 
-                    <div class="col-md-7 mb-2 mb-md-0">
-                        <label class="form-label fw-bold mb-1">Estado del Evento:</label>
-                        <select name="estado_evento" id="m-select-estado" class="form-select fw-bold">
+                    <!-- AGREGAR NUEVO EXTRA AL EVENTO -->
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-8">
+                            <select name="nuevo_id_servicio" class="form-select border-success">
+                                <option value="">-- Agregar Servicio Extra Adicional --</option>
+                                <?php foreach ($servicios_catalogo as $serv): 
+                                    if (strtolower($serv['tipo_registro'] ?? '') === 'paquete') continue;
+                                    $es_pp = ($serv['es_por_persona'] == 1 || strtolower($serv['tipo_cobro'] ?? '') === 'por_persona') ? ' / persona' : '';
+                                ?>
+                                    <option value="<?= $serv['id_servicio'] ?>">
+                                        <?= htmlspecialchars($serv['nombre_servicio']) ?> ($<?= number_format((float)$serv['precio_servicio'], 2) ?><?= $es_pp ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-success w-100 fw-bold"><i class="fa-solid fa-plus me-1"></i> Agregar Extra</button>
+                        </div>
+                    </div>
+
+                    <!-- RESUMEN TOTAL DENTRO DEL MODAL -->
+                    <div class="d-flex justify-content-between align-items-center bg-light p-3 rounded border mb-3">
+                        <h5 class="fw-bold mb-0">TOTAL RECALCULADO:</h5>
+                        <h3 class="fw-bold text-primary mb-0" id="modal_total_recalculado">$0.00</h3>
+                    </div>
+
+                    <!-- ESTADO DEL EVENTO -->
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">Estado del Evento:</label>
+                        <select name="estado_evento" id="modal_estado_select" class="form-select">
                             <option value="confirmado">Activo / Confirmado</option>
                             <option value="pendiente">Pendiente</option>
                             <option value="cancelado">Cancelado</option>
                         </select>
                     </div>
-                    <div class="col-md-5 text-md-end pt-md-4">
-                        <button type="submit" class="btn btn-primary w-100 fw-bold">
-                            <i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios
-                        </button>
-                    </div>
-                </form>
 
-            </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-primary fw-bold"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let modalDesgloseObj = null;
+let modalEventoActual = null;
+let bootstrapModalHistorial = null;
 
 document.addEventListener('DOMContentLoaded', function() {
-    modalDesgloseObj = new bootstrap.Modal(document.getElementById('modalDesglose'));
+    bootstrapModalHistorial = new bootstrap.Modal(document.getElementById('modalDesgloseEvento'));
 });
 
 function abrirModalDesglose(evt) {
-    document.getElementById('modal-titulo-evento').innerText = 'Desglose del Evento #EV-' + String(evt.id_evento).padStart(5, '0');
-    document.getElementById('m-cliente-nombre').innerText = (evt.nombre_usuario || '') + ' ' + (evt.apellidos_usuario || '');
-    document.getElementById('m-cliente-tel').innerText = evt.telefono_usuario || 'Sin Teléfono';
-    document.getElementById('m-fecha').innerText = evt.fecha_evento + ' ' + evt.hora_evento;
-    document.getElementById('m-salon').innerText = evt.ubicacion || 'General';
+    modalEventoActual = evt;
+    
+    let folio = "#EV-" . str_pad(evt.id_evento, 5, '0', STR_PAD_LEFT);
+    document.getElementById('modal_titulo_folio').innerText = "Desglose del Evento #" + evt.id_evento;
+    document.getElementById('modal_id_evento').value = evt.id_evento;
+    
+    let clienteNom = (evt.nombre_usuario || '') + ' ' + (evt.apellidos_usuario || '');
+    document.getElementById('modal_cliente_nombre').innerText = clienteNom.trim() || 'Cliente General';
+    document.getElementById('modal_cliente_telefono').innerText = evt.telefono_usuario || 'Sin teléfono';
+    document.getElementById('modal_evento_fecha').innerText = evt.fecha_evento + ' ' + evt.hora_evento;
+    document.getElementById('modal_evento_salon').innerText = 'Salón ' + (evt.ubicacion || 'Jardín');
+    document.getElementById('modal_estado_select').value = (evt.estado || 'confirmado').toLowerCase();
 
-    document.getElementById('m-input-id-evento-add').value = evt.id_evento;
-    document.getElementById('m-input-id-evento-est').value = evt.id_evento;
-    document.getElementById('m-select-estado').value = evt.estado || 'confirmado';
+    // Sincronizar número de personas
+    let numPers = parseInt(evt.num_personas) || 50;
+    let slider = document.getElementById('modal_num_personas_slider');
+    slider.value = numPers;
+    
+    actualizarPersonasModal(numPers);
+    bootstrapModalHistorial.show();
+}
 
-    let tbody = document.getElementById('m-tabla-servicios-body');
-    let paqueteBox = document.getElementById('m-paquete-info');
+function actualizarPersonasModal(numPers) {
+    document.getElementById('modal_label_num_personas').innerText = numPers + ' personas';
+    
+    if (!modalEventoActual) return;
+
+    let servicios = modalEventoActual.servicios_asociados || [];
+    let paqueteFound = null;
+    let extrasList = [];
+
+    servicios.forEach(s => {
+        let tipo = (s.tipo_registro || '').toLowerCase();
+        let esPaq = tipo === 'paquete' || (s.nombre_servicio || '').toLowerCase().includes('paquete');
+        if (esPaq && !paqueteFound) {
+            paqueteFound = s;
+        } else {
+            extrasList.push(s);
+        }
+    });
+
+    let totalCalculado = 0;
+
+    // Renderizar información del Paquete
+    let paqContainer = document.getElementById('modal_paquete_info');
+    if (paqueteFound) {
+        let precioU = parseFloat(paqueteFound.precio_servicio) || 0;
+        let esPP = paqueteFound.es_por_persona == 1 || (paqueteFound.tipo_cobro || '').toLowerCase() === 'por_persona';
+        let subtotalPaq = (esPP || paqueteFound.tipo_cobro !== 'fijo') ? (precioU * numPers) : precioU;
+        totalCalculado += subtotalPaq;
+
+        paqContainer.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <span>${paqueteFound.nombre_servicio} ($${precioU.toFixed(2)} / persona)</span>
+                <span class="badge bg-primary fs-6">$${subtotalPaq.toFixed(2)}</span>
+            </div>
+        `;
+    } else {
+        paqContainer.innerHTML = '<span class="text-muted">Sin Paquete Registrado</span>';
+    }
+
+    // Renderizar Tabla de Extras
+    let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
 
-    let paqueteNombre = "Sin Paquete Registrado";
-    let numPersonas = evt.num_personas || 0;
-    let tieneExtras = false;
+    if (extrasList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
+    } else {
+        extrasList.forEach(ext => {
+            let precioU = parseFloat(ext.precio_servicio) || 0;
+            let esPP = ext.es_por_persona == 1 || (ext.tipo_cobro || '').toLowerCase() === 'por_persona';
+            let subtotalExt = esPP ? (precioU * numPers) : precioU;
+            totalCalculado += subtotalExt;
 
-    if (evt.servicios_asociados && evt.servicios_asociados.length > 0) {
-        evt.servicios_asociados.forEach(s => {
-            let tipoReg = (s.tipo_registro || '').toLowerCase();
-            let nombreServ = (s.nombre_servicio || '').toLowerCase();
-
-            // Identificar Paquete Base
-            if (tipoReg === 'paquete' || nombreServ.includes('paquete')) {
-                paqueteNombre = s.nombre_servicio;
-            } else {
-                // Es un Servicio Adicional
-                tieneExtras = true;
-                let precio = parseFloat(s.precio_servicio) || 0;
-                let esPP = (s.es_por_persona == 1 || (s.tipo_cobro || '').toLowerCase() === 'por_persona') ? ' / persona' : '';
-                
-                let tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="fw-bold text-dark">${s.nombre_servicio}</td>
-                    <td>$${precio.toFixed(2)}${esPP}</td>
-                    <td class="text-center">
-                        <form action="" method="POST" onsubmit="return confirm('¿Seguro que deseas eliminar este servicio extra del evento?');">
-                            <input type="hidden" name="accion" value="eliminar_servicio">
-                            <input type="hidden" name="id_evento_servicio" value="${s.id_evento_servicio}">
-                            <button type="submit" class="btn btn-danger btn-sm py-0 px-2 fw-bold">&times;</button>
-                        </form>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            }
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>
+                    <strong class="text-dark">${ext.nombre_servicio}</strong>
+                    ${esPP ? `<br><small class="text-muted">(${numPers} personas x $${precioU.toFixed(2)})</small>` : ''}
+                </td>
+                <td class="fw-bold text-primary">$${subtotalExt.toFixed(2)}</td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="eliminarExtraModal(${ext.id_evento_servicio})">
+                        &times; Quitar
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
         });
     }
 
-    // Renderizar caja del paquete
-    let personasTxt = numPersonas > 0 ? ` para <strong>${numPersonas} personas</strong>` : '';
-    paqueteBox.innerHTML = `Compró el paquete <strong>${paqueteNombre}</strong>${personasTxt}.`;
+    document.getElementById('modal_total_recalculado').innerText = '$' + totalCalculado.toFixed(2);
+}
 
-    if (!tieneExtras) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
+function eliminarExtraModal(idEventoServicio) {
+    if (confirm('¿Deseas remover este servicio del evento?')) {
+        document.getElementById('modal_eliminar_id_es').value = idEventoServicio;
+        document.querySelector('#modalDesgloseEvento form').submit();
     }
-
-    modalDesgloseObj.show();
 }
 </script>
 
