@@ -349,8 +349,8 @@ include __DIR__ . '/includes/header.php';
                 </div>
 
                 <div class="alert alert-warning py-2 px-3 small fw-bold mb-3">
-                    <i class="fa-solid fa-circle-info me-1"></i> Recomendación de Servidor:
-                    Para mantener el servidor óptimo, sube fotos comprimidas y videos cortos en .mp4.
+                    <i class="fa-solid fa-circle-info me-1"></i>
+                    Sube Imágenes livianas y videos cortos en .mp4.
                 </div>
 
                 <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-images me-1"></i> Archivos cargados actualmente:</h6>
