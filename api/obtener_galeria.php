@@ -5,7 +5,7 @@ header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json; charset=UTF-8');
 
 // Ajusta la ruta a tu conexión de BD según tu estructura
-require_once '../config/db.php'; 
+require_once dirname(__DIR__) . '/db_config.php';
 
 $tipo = $_GET['tipo'] ?? ''; // 'paquetes' o 'extras'
 $idEntidad = intval($_GET['id'] ?? 0);
