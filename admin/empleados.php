@@ -26,7 +26,9 @@ if (isset($_SESSION['error_db'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    // Agregar Empleado (Asigna Rol 4)
+    // -------------------------------------------------------------
+    // 1. CREAR EMPLEADO (Asigna Rol 4)
+    // -------------------------------------------------------------
     if (isset($_POST['accion']) && $_POST['accion'] === 'crear') {
         $nombre = trim($_POST['nombre_usuario']);
         $apellidos = trim($_POST['apellidos_usuario']);
@@ -35,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $pass = password_hash($_POST['password_usuario'] ?? '123456', PASSWORD_DEFAULT);
 
         try {
-           $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
+            $stmt = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, estado_usuario) VALUES (?, ?, ?, ?, ?, 4, 1)");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $pass]);
             $_SESSION['mensaje_exito'] = "Empleado guardado correctamente.";
         } catch (PDOException $e) {
@@ -45,7 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         exit;
     }
 
-    // Editar Empleado (Aplica para Rol 4)
+    // -------------------------------------------------------------
+    // 2. EDITAR EMPLEADO (Actualiza datos y opcionalmente contraseña)
+    // -------------------------------------------------------------
     if (isset($_POST['accion']) && $_POST['accion'] === 'editar') {
         $id_u = $_POST['id_usuario'];
         $nombre = trim($_POST['nombre_usuario']);
@@ -53,10 +57,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $correo = trim($_POST['correo_usuario']);
         $telefono = trim($_POST['telefono_usuario']);
         $estado = $_POST['estado_usuario'];
+        $nueva_pass = trim($_POST['contrasena'] ?? '');
 
         try {
-           $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, email = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
+            // Actualización general de datos del empleado
+            $stmt = $pdo->prepare("UPDATE usuarios SET nombre_usuario = ?, apellidos_usuario = ?, email = ?, telefono_usuario = ?, estado_usuario = ? WHERE id_usuario = ? AND id_rol = 4");
             $stmt->execute([$nombre, $apellidos, $correo, $telefono, $estado, $id_u]);
+
+            // Si el SuperAdmin escribió una nueva contraseña, la actualizamos
+            if (esSuperAdmin() && !empty($nueva_pass)) {
+                $pass_hash = password_hash($nueva_pass, PASSWORD_DEFAULT);
+                $stmtPass = $pdo->prepare("UPDATE usuarios SET contrasena_usuario = ? WHERE id_usuario = ?");
+                $stmtPass->execute([$pass_hash, $id_u]);
+            }
+
             $_SESSION['mensaje_exito'] = "Empleado actualizado correctamente.";
         } catch (PDOException $e) {
             $_SESSION['error_db'] = "Error al actualizar empleado: " . $e->getMessage();
@@ -65,7 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         exit;
     }
 
-    // Eliminar Empleado (Aplica para Rol 4)
+    // -------------------------------------------------------------
+    // 3. ELIMINAR EMPLEADO
+    // -------------------------------------------------------------
     if (isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
         $id_u = $_POST['id_usuario'];
         try {
@@ -151,7 +167,7 @@ if (isset($pdo)) {
                                         <tr>
                                             <td class="ps-3 fw-bold">#<?= htmlspecialchars($emp['id_usuario']) ?></td>
                                             <td><?= htmlspecialchars($emp['nombre_usuario'] . ' ' . $emp['apellidos_usuario']) ?></td>
-                                            <td><?= htmlspecialchars($emp['email']) ?></td>
+                                            <td><?= htmlspecialchars($emp['email'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($emp['telefono_usuario'] ?? 'N/A') ?></td>
                                             <td><span class="badge bg-secondary">Empleado</span></td>
                                             <td>
@@ -191,12 +207,24 @@ if (isset($pdo)) {
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Correo Electrónico</label>
-                                                                <input type="email" name="email" value="<?php echo htmlspecialchars($empleado['email'] ?? ''); ?>" required>
+                                                                <input type="email" name="correo_usuario" class="form-control" value="<?= htmlspecialchars($emp['email'] ?? '') ?>" required>
                                                             </div>
                                                             <div class="mb-3">
                                                                 <label class="form-label">Teléfono</label>
                                                                 <input type="text" name="telefono_usuario" class="form-control" value="<?= htmlspecialchars($emp['telefono_usuario'] ?? '') ?>">
                                                             </div>
+
+                                                            <!-- Campo exclusivo para cambiar contraseña como SuperAdmin -->
+                                                            <?php if (esSuperAdmin()): ?>
+                                                                <div class="mb-3">
+                                                                    <label class="form-label fw-bold text-danger">Nueva Contraseña</label>
+                                                                    <input type="password" name="contrasena" class="form-control" placeholder="Dejar en blanco para mantener la actual">
+                                                                    <small class="form-text text-muted">
+                                                                        Solo tú como Superadministrador puedes redefinir contraseñas.
+                                                                    </small>
+                                                                </div>
+                                                            <?php endif; ?>
+
                                                             <div class="mb-3">
                                                                 <label class="form-label">Estado</label>
                                                                 <select name="estado_usuario" class="form-select">
