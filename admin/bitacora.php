@@ -18,11 +18,11 @@ if (!isset($pdo)) {
 try {
     // Consultamos los registros de la bitácora usando la nueva tabla historial_cambios
     $sql = "SELECT h.id_historial, h.accion, h.tabla_afectada, h.id_registro, h.fecha_cambio, h.datos_anteriores, h.datos_nuevos,
-                   u.nombre_usuario, u.apellidos_usuario
-            FROM historial_cambios h
-            LEFT JOIN usuarios u ON h.id_usuario = u.id_usuario
-            ORDER BY h.fecha_cambio DESC
-            LIMIT 100";
+               u.nombre_usuario, u.apellidos_usuario, u.email
+        FROM historial_cambios h
+        LEFT JOIN usuarios u ON h.id_usuario = u.id_usuario
+        ORDER BY h.fecha_cambio DESC
+        LIMIT 100";
             
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
