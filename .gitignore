@@ -1,0 +1,30 @@
+# Archivos sensibles - NUNCA subir a GitHub
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+logs/
+
+# Archivos de sistema de Windows
+Thumbs.db
+desktop.ini
+*.lnk
+
+# Archivos de sistema macOS
+.DS_Store
+.AppleDouble
+
+# Archivos temporales de editores
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Dependencias (si usas composer en el futuro)
+vendor/
+
+# Archivos de cache de PHP
+*.cache

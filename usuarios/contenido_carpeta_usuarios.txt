@@ -1,0 +1,342 @@
+﻿
+/* === Contenido de la carpeta usuarios / Archivo: actualizar.php === */
+<?php
+
+header("Content-Type: application/json");
+
+require_once "../config/database.php";
+
+$db = new Database();
+$conn = $db->conectar();
+
+$data = json_decode(file_get_contents("php://input"), true);
+
+$id_usuario = $data['id_usuario'] ?? 0;
+
+if (!$id_usuario) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Se requiere el id_usuario para actualizar"
+    ]);
+    exit;
+}
+
+$nombre = $data['nombre'] ?? '';
+$apellidos = $data['apellidos'] ?? '';
+$correo = $data['correo'] ?? '';
+$telefono = $data['telefono'] ?? '';
+$id_rol = $data['id_rol'] ?? null;
+$id_sucursal = $data['id_sucursal'] ?? null;
+$es_superadmin = $data['es_superadmin'] ?? 0;
+$estado = $data['estado'] ?? 'activo';
+$contrasena = $data['contrasena'] ?? '';
+
+try {
+    if (!empty($contrasena)) {
+        // Si mandan contraseÃ±a nueva, se actualiza encriptada
+        $passwordHash = password_hash($contrasena, PASSWORD_DEFAULT);
+        $sql = "
+        UPDATE usuarios
+        SET
+        nombre = ?,
+        apellidos = ?,
+        correo = ?,
+        telefono = ?,
+        id_rol = ?,
+        id_sucursal = ?,
+        es_superadmin = ?,
+        estado = ?,
+        contrasena = ?
+        WHERE id_usuario = ?
+        ";
+$params = [$nombre, $apellidos, $correo, $telefono, $id_rol, $id_sucursal, $es_superadmin, $estado, $passwordHash, $id_usuario];
+    } else {
+        // Sin modificar contraseÃ±a
+        $sql = "
+        UPDATE usuarios
+        SET
+        nombre = ?,
+        apellidos = ?,
+        correo = ?,
+        telefono = ?,
+        id_rol = ?,
+        id_sucursal = ?,
+        es_superadmin = ?,
+        estado = ?
+        WHERE id_usuario = ?
+        ";
+$params = [$nombre, $apellidos, $correo, $telefono, $id_rol, $id_sucursal, $es_superadmin, $estado, $id_usuario];
+    }
+
+    $stmt = $conn->prepare($sql);
+    $resultado = $stmt->execute($params);
+
+    echo json_encode([
+        "success" => $resultado,
+        "mensaje" => $resultado ? "Usuario actualizado correctamente" : "No se realizaron cambios"
+    ]);
+} catch (PDOException $e) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Error al actualizar usuario: " . $e->getMessage()
+    ]);
+}
+
+
+/* === Contenido de la carpeta usuarios / Archivo: crear.php === */
+<?php
+
+header("Content-Type: application/json");
+
+require_once "../config/database.php";
+
+$db = new Database();
+$conn = $db->conectar();
+
+$data = json_decode(file_get_contents("php://input"), true);
+
+$nombre = $data['nombre'] ?? '';
+$apellidos = $data['apellidos'] ?? '';
+$correo = $data['correo'] ?? '';
+$telefono = $data['telefono'] ?? '';
+$contrasena = $data['contrasena'] ?? '';
+$id_rol = $data['id_rol'] ?? 2; // Rol por defecto (ej. Cliente o Staff)
+$id_sucursal = $data['id_sucursal'] ?? null;
+$es_superadmin = $data['es_superadmin'] ?? 0;
+
+if (empty($nombre) || empty($apellidos) || empty($correo) || empty($contrasena)) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Faltan datos obligatorios (nombre, apellidos, correo, contraseÃ±a)"
+    ]);
+    exit;
+}
+
+$passwordHash = password_hash($contrasena, PASSWORD_DEFAULT);
+
+$sql = "
+INSERT INTO usuarios
+(
+    nombre,
+apellidos,
+correo,
+telefono,
+contrasena,
+id_rol,
+id_sucursal,
+es_superadmin,
+estado
+)
+VALUES
+(
+    ?, ?, ?, ?, ?, ?, ?, ?, 'activo'
+    )
+    ";
+
+    try {
+        $stmt = $conn->prepare($sql);
+
+        $resultado = $stmt->execute([
+            $nombre,
+            $apellidos,
+            $correo,
+            $telefono,
+            $passwordHash,
+            $id_rol,
+            $id_sucursal,
+            $es_superadmin
+        ]);
+
+        $id_insertado = $conn->lastInsertId();
+
+        echo json_encode([
+            "success" => $resultado,
+            "id_usuario" => $id_insertado,
+            "mensaje" => $resultado ? "Usuario creado exitosamente" : "No se pudo registrar el usuario"
+        ]);
+    } catch (PDOException $e) {
+        echo json_encode([
+            "success" => false,
+            "mensaje" => "Error al registrar usuario: " . $e->getMessage()
+        ]);
+    }
+
+
+/* === Contenido de la carpeta usuarios / Archivo: detalle.php === */
+<?php
+
+header("Content-Type: application/json");
+
+require_once "../config/database.php";
+
+$db = new Database();
+$conn = $db->conectar();
+
+$id_usuario = $_GET['id_usuario'] ?? 0;
+
+if (!$id_usuario) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Se requiere un id_usuario vÃ¡lido"
+    ]);
+    exit;
+}
+
+$sql = "
+SELECT
+u.id_usuario,
+u.id_sucursal,
+u.id_rol,
+u.nombre,
+u.apellidos,
+u.correo,
+u.telefono,
+u.es_superadmin,
+u.fecha_registro,
+u.estado,
+r.nombre_rol,
+s.nombre_sucursal
+FROM usuarios u
+LEFT JOIN roles r ON u.id_rol = r.id_rol
+LEFT JOIN sucursales s ON u.id_sucursal = s.id_sucursal
+WHERE u.id_usuario = ?
+";
+
+try {
+    $stmt = $conn->prepare($sql);
+    $stmt->execute([$id_usuario]);
+
+    $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($usuario) {
+        echo json_encode([
+            "success" => true,
+            "usuario" => $usuario
+        ]);
+    } else {
+        echo json_encode([
+            "success" => false,
+            "mensaje" => "Usuario no encontrado"
+        ]);
+    }
+} catch (PDOException $e) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Error al obtener detalle del usuario: " . $e->getMessage()
+    ]);
+}
+
+
+/* === Contenido de la carpeta usuarios / Archivo: eliminar.php === */
+<?php
+
+header("Content-Type: application/json");
+
+require_once "../config/database.php";
+
+$db = new Database();
+$conn = $db->conectar();
+
+$id_usuario = $_GET['id_usuario'] ?? 0;
+
+if (!$id_usuario) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Se requiere el id_usuario para eliminar"
+    ]);
+    exit;
+}
+
+$sql = "
+UPDATE usuarios
+SET estado = 'inactivo'
+WHERE id_usuario = ?
+";
+
+try {
+    $stmt = $conn->prepare($sql);
+
+    $resultado = $stmt->execute([$id_usuario]);
+
+    if ($stmt->rowCount() > 0) {
+        echo json_encode([
+            "success" => true,
+            "mensaje" => "Usuario desactivado (baja lÃ³gica) correctamente"
+        ]);
+    } else {
+        echo json_encode([
+            "success" => false,
+            "mensaje" => "No se encontrÃ³ el usuario o ya estaba inactivo"
+        ]);
+    }
+} catch (PDOException $e) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Error al desactivar el usuario: " . $e->getMessage()
+    ]);
+}]);
+
+
+/* === Contenido de la carpeta usuarios / Archivo: listar.php === */
+<?php
+
+header("Content-Type: application/json");
+
+require_once "../config/database.php";
+
+$db = new Database();
+$conn = $db->conectar();
+
+$id_sucursal = $_GET['id_sucursal'] ?? null;
+$id_rol = $_GET['id_rol'] ?? null;
+
+$sql = "
+SELECT
+u.id_usuario,
+u.id_sucursal,
+u.id_rol,
+u.nombre,
+u.apellidos,
+u.correo,
+u.telefono,
+u.es_superadmin,
+u.fecha_registro,
+u.estado,
+r.nombre_rol,
+s.nombre_sucursal
+FROM usuarios u
+LEFT JOIN roles r ON u.id_rol = r.id_rol
+LEFT JOIN sucursales s ON u.id_sucursal = s.id_sucursal
+WHERE 1=1
+";
+
+$params = [];
+
+if ($id_sucursal) {
+    $sql .= " AND u.id_sucursal = ?";
+    $params[] = $id_sucursal;
+}
+
+if ($id_rol) {
+    $sql .= " AND u.id_rol = ?";
+    $params[] = $id_rol;
+}
+
+$sql .= " ORDER BY u.id_usuario DESC";
+
+try {
+    $stmt = $conn->prepare($sql);
+    $stmt->execute($params);
+    $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        "success" => true,
+        "usuarios" => $usuarios
+    ]);
+} catch (PDOException $e) {
+    echo json_encode([
+        "success" => false,
+        "mensaje" => "Error al listar usuarios: " . $e->getMessage()
+    ]);
+}
+
