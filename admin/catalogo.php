@@ -200,7 +200,7 @@ if (isset($pdo)) {
                                         </td>
                                         <td class="fw-bold text-success fs-6">$<?= number_format((float)($s['precio_servicio'] ?? 0), 2) ?></td>
                                         <td>
-                                            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="abrirModalGaleria(<?= $s['id_servicio'] ?>, '<?= htmlspecialchars($s['nombre_servicio'], ENT_QUOTES) ?>')">
+                                            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="abrirModalGaleria(<?= $s['id_servicio'] ?>, '<?= htmlspecialchars($s['nombre_servicio'], ENT_QUOTES) ?>', '<?= $tipo ?>')">
                                                 <i class="fa-solid fa-images text-warning me-1"></i> <?= $s['total_fotos'] ?> fotos/vid
                                             </button>
                                         </td>
@@ -312,6 +312,7 @@ if (isset($pdo)) {
             </div>
             <div class="modal-body">
                 <input type="hidden" id="galeria_id_servicio">
+                <input type="hidden" id="galeria_tipo_registro">
 
                 <!-- DROPZONE DRAG & DROP -->
                 <div class="dropzone-area mb-3" id="dropzone_target" onclick="document.getElementById('input_archivos_hidden').click()">
@@ -389,27 +390,43 @@ function editarServicio(s) {
     modalInstancia.show();
 }
 
-function abrirModalGaleria(idServicio, nombreServicio) {
+function abrirModalGaleria(idServicio, nombreServicio, tipoRegistro) {
     document.getElementById('galeria_id_servicio').value = idServicio;
+    // Normalizar el tipo a 'paquetes' o 'extras' para coincidir con la API
+    let tipo = (tipoRegistro === 'paquete') ? 'paquetes' : 'extras';
+    document.getElementById('galeria_tipo_registro').value = tipo;
+
     document.getElementById('titulo_modal_galeria').innerText = "Multimedia: " + nombreServicio;
-    cargarGaleriaServicio(idServicio);
+    cargarGaleriaServicio(idServicio, tipo);
     bsModalGaleria.show();
 }
 
-function cargarGaleriaServicio(idServicio) {
+function cargarGaleriaServicio(idServicio, tipo) {
     let contenedor = document.getElementById('contenedor_galeria_existente');
     contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">Cargando elementos...</span>';
 
-    fetch(`../api/obtener_galeria.php?id_servicio=${idServicio}`)
+    if (!tipo) {
+        tipo = document.getElementById('galeria_tipo_registro').value || 'paquetes';
+    }
+
+    fetch(`../api/obtener_galeria.php?tipo=${tipo}&id=${idServicio}`)
     .then(r => r.json())
     .then(data => {
         contenedor.innerHTML = '';
-        if (!data || data.length === 0) {
+
+        if (data.status === 'error' || data.error) {
+            contenedor.innerHTML = `<span class="text-danger small fw-bold m-auto">${data.message || data.error}</span>`;
+            return;
+        }
+
+        const lista = Array.isArray(data) ? data : (data.data || []);
+
+        if (lista.length === 0) {
             contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
             return;
         }
 
-        data.forEach(item => {
+        lista.forEach(item => {
             let div = document.createElement('div');
             div.className = 'thumb-container';
 
@@ -419,10 +436,13 @@ function cargarGaleriaServicio(idServicio) {
 
             div.innerHTML = `
                 ${mediaHTML}
-                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${item.id_galeria})">&times;</button>
+                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${item.id_galeria || item.id})">&times;</button>
             `;
             contenedor.appendChild(div);
         });
+    })
+    .catch(err => {
+        contenedor.innerHTML = '<span class="text-danger small fw-bold m-auto">Error de comunicación con el servidor.</span>';
     });
 }
 
@@ -430,11 +450,14 @@ function subirArchivosGaleria(files) {
     if (!files || files.length === 0) return;
 
     let idServicio = document.getElementById('galeria_id_servicio').value;
+    let tipo = document.getElementById('galeria_tipo_registro').value || 'paquetes';
+
     let formData = new FormData();
-    formData.append('id_servicio', idServicio);
+    formData.append('tipo', tipo);
+    formData.append('id', idServicio);
 
     for (let i = 0; i < files.length; i++) {
-        formData.append('archivos_multimedia[]', files[i]);
+        formData.append('archivos[]', files[i]);
     }
 
     let statusBox = document.getElementById('status_upload_galeria');
@@ -442,21 +465,25 @@ function subirArchivosGaleria(files) {
     statusBox.innerText = 'Subiendo y registrando archivos en el servidor...';
     statusBox.classList.remove('d-none');
 
-    fetch('subir_galeria.php', {
+    fetch('../api/subir_galeria.php', {
         method: 'POST',
         body: formData
     })
     .then(r => r.json())
     .then(data => {
-        if (data.exito) {
+        if (data.status === 'success' || data.exito) {
             statusBox.className = 'alert alert-success py-2 fw-bold small';
-            statusBox.innerText = '✓ ' + data.mensaje;
-            cargarGaleriaServicio(idServicio);
+            statusBox.innerText = '✓ ' + (data.message || data.mensaje || 'Archivos subidos con éxito.');
+            cargarGaleriaServicio(idServicio, tipo);
             setTimeout(() => { statusBox.classList.add('d-none'); }, 2500);
         } else {
             statusBox.className = 'alert alert-danger py-2 fw-bold small';
-            statusBox.innerText = 'Error: ' + data.error;
+            statusBox.innerText = 'Error: ' + (data.message || data.error || 'No se pudieron subir los archivos.');
         }
+    })
+    .catch(err => {
+        statusBox.className = 'alert alert-danger py-2 fw-bold small';
+        statusBox.innerText = 'Error de comunicación con el servidor.';
     });
 }
 
@@ -466,15 +493,16 @@ function eliminarFotoGaleria(idGaleria) {
         formData.append('accion', 'eliminar_foto');
         formData.append('id_galeria', idGaleria);
 
-        fetch('subir_galeria.php', {
+        fetch('../api/subir_galeria.php', {
             method: 'POST',
             body: formData
         })
         .then(r => r.json())
         .then(data => {
-            if (data.exito) {
+            if (data.status === 'success' || data.exito) {
                 let idServicio = document.getElementById('galeria_id_servicio').value;
-                cargarGaleriaServicio(idServicio);
+                let tipo = document.getElementById('galeria_tipo_registro').value;
+                cargarGaleriaServicio(idServicio, tipo);
             }
         });
     }
