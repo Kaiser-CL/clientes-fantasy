@@ -6,21 +6,22 @@ header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 require_once __DIR__ . '/../db_config.php';
 ob_clean();
 
-// Función auxiliar para mantener el campo JSON en la tabla servicios al día
+// Función para actualizar la columna JSON 'galeria_urls' en la tabla 'servicios'
 function sincronizarGaleriaJson($pdo, $id_servicio) {
     try {
+        // Seleccionamos las rutas directamente de 'servicio_galeria'
         $stmt = $pdo->prepare("SELECT ruta_archivo FROM servicio_galeria WHERE id_servicio = ? ORDER BY id_galeria ASC");
         $stmt->execute([$id_servicio]);
         $rutas = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        // Convertir el arreglo PHP a una cadena JSON ["uploads/...", "uploads/..."]
+        // Convertimos el arreglo PHP a JSON ["uploads/...", "uploads/..."]
         $json_rutas = json_encode($rutas, JSON_UNESCAPED_SLASHES);
 
-        // Actualizar la tabla principal de servicios
+        // Guardamos en la tabla servicios
         $stmtUpd = $pdo->prepare("UPDATE servicios SET galeria_urls = ? WHERE id_servicio = ?");
         $stmtUpd->execute([$json_rutas, $id_servicio]);
     } catch (Exception $e) {
-        // Error silencioso en sincronización para no romper la respuesta principal
+        // Silencioso para evitar romper la respuesta JSON principal
     }
 }
 
@@ -44,17 +45,17 @@ if ($accion === 'eliminar_foto') {
         $foto = $stmtSel->fetch(PDO::FETCH_ASSOC);
 
         if (!$foto) {
-            echo json_encode(['status' => 'error', 'message' => 'El registro no existe en la base de datos.']);
+            echo json_encode(['status' => 'error', 'message' => 'El registro no existe en servicio_galeria.']);
             exit;
         }
 
         $id_servicio = $foto['id_servicio'];
 
-        // Eliminar registro de la tabla individual
+        // Eliminar fila de servicio_galeria
         $stmtDel = $pdo->prepare("DELETE FROM servicio_galeria WHERE id_galeria = ?");
         $stmtDel->execute([$id_galeria]);
 
-        // Borrar archivo físico si existe
+        // Borrar archivo físico del servidor Render
         if (!empty($foto['ruta_archivo'])) {
             $ruta_limpia = ltrim($foto['ruta_archivo'], '/.');
             $ruta_fisica = __DIR__ . '/../' . $ruta_limpia;
@@ -63,14 +64,14 @@ if ($accion === 'eliminar_foto') {
             }
         }
 
-        // Sincronizar el arreglo JSON en la tabla servicios
+        // Sincronizar el arreglo JSON
         sincronizarGaleriaJson($pdo, $id_servicio);
 
-        echo json_encode(['status' => 'success', 'message' => 'Elemento eliminado y arreglo actualizado.']);
+        echo json_encode(['status' => 'success', 'message' => 'Elemento eliminado correctamente.']);
         exit;
 
     } catch (PDOException $e) {
-        echo json_encode(['status' => 'error', 'message' => 'Error en base de datos: ' . $e->getMessage()]);
+        echo json_encode(['status' => 'error', 'message' => 'Error en BD: ' . $e->getMessage()]);
         exit;
     }
 }
@@ -81,12 +82,12 @@ if ($accion === 'eliminar_foto') {
 $id_servicio = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
 
 if (!$id_servicio) {
-    echo json_encode(['status' => 'error', 'message' => 'ID de servicio faltante para la subida.']);
+    echo json_encode(['status' => 'error', 'message' => 'ID de servicio faltante.']);
     exit;
 }
 
 if (!isset($_FILES['archivos']) || empty($_FILES['archivos']['name'][0])) {
-    echo json_encode(['status' => 'error', 'message' => 'No se seleccionaron archivos para subir.']);
+    echo json_encode(['status' => 'error', 'message' => 'No se seleccionaron archivos.']);
     exit;
 }
 
@@ -113,22 +114,23 @@ foreach ($_FILES['archivos']['tmp_name'] as $index => $tmp_name) {
         $tipo_archivo = in_array($ext, ['mp4', 'mov', 'webm']) ? 'video' : 'imagen';
 
         try {
+            // Insertar en la tabla correcta: servicio_galeria
             $stmt = $pdo->prepare("INSERT INTO servicio_galeria (id_servicio, ruta_archivo, tipo_archivo) VALUES (?, ?, ?)");
             $stmt->execute([$id_servicio, $ruta_relativa, $tipo_archivo]);
             $subidos++;
         } catch (PDOException $e) {
-            // Manejar error de inserción
+            // Ignorar errores individuales
         }
     }
 }
 
 if ($subidos > 0) {
-    // Sincronizar el arreglo JSON en la tabla servicios con las nuevas URLs agregadas
+    // Reconstruir la lista JSON en la tabla servicios
     sincronizarGaleriaJson($pdo, $id_servicio);
 
     echo json_encode([
         'status' => 'success',
-        'message' => "Se subieron {$subidos} archivo(s) y se actualizó el arreglo de imágenes."
+        'message' => "Se subieron {$subidos} archivo(s) correctamente."
     ]);
 } else {
     echo json_encode([
