@@ -1,76 +1,60 @@
 <?php
-// api/obtener_galeria.php
+header('Content-Type: application/json; charset=utf-8');
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 
-header('Access-Control-Allow-Origin: *');
-header('Content-Type: application/json; charset=UTF-8');
+require_once __DIR__ . '/../db_config.php';
 
-require_once dirname(__DIR__) . '/db_config.php';
+$id_servicio = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+$tipo_param = trim($_GET['tipo'] ?? '');
 
-$tipo = $_GET['tipo'] ?? ''; // 'paquetes' o 'extras'
-$idEntidad = intval($_GET['id'] ?? 0);
-
-if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
-    echo json_encode([
-        'status' => 'error', 
-        'message' => 'Parámetros inválidos. Se requiere tipo (paquetes|extras) e id mayor a 0.'
-    ]);
+if (!$id_servicio) {
+    echo json_encode(['status' => 'error', 'message' => 'ID de servicio no válido.']);
     exit;
 }
 
 try {
-    $sql = "SELECT id_galeria, id_servicio, titulo_concepto, descripcion_concepto, tipo_archivo, url_archivo, fecha_subida 
-            FROM galeria_conceptos 
-            WHERE id_servicio = ? 
-            ORDER BY id_galeria DESC";
-            
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$idEntidad]);
-    $conceptos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Normalizar la búsqueda para aceptar tanto 'paquetes'/'extras' como 'paquete'/'servicio_extra'
+    $tipo_normalizado = (strpos($tipo_param, 'paquete') !== false) ? 'paquete' : 'servicio_extra';
 
-    // Detección de Host e IP en Render / HTTPS
-    $protocolo = "https"; 
-    $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'clientes-fantasy.onrender.com';
-    $baseUrl = $protocolo . "://" . $host . "/";
+    // Se consultan todas las imágenes ligadas a este id_servicio en la tabla servicio_galeria
+    $stmt = $pdo->prepare("SELECT id_galeria, id_servicio, ruta_archivo, tipo_archivo 
+                           FROM servicio_galeria 
+                           WHERE id_servicio = ? 
+                           ORDER BY id_galeria ASC");
+    $stmt->execute([$id_servicio]);
+    $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Decodificar la lista JSON y formatear la respuesta
-    $dataFormateada = array_map(function($item) use ($baseUrl) {
-        $listaImagenes = json_decode($item['url_archivo'], true);
-
-        // Si no era JSON (registros antiguos), lo envolvemos como array de 1 elemento
-        if (!is_array($listaImagenes)) {
-            $listaImagenes = [$item['url_archivo']];
+    $resultado = [];
+    foreach ($registros as $row) {
+        $ruta_raw = trim($row['ruta_archivo']);
+        
+        // Limpieza estricta de la ruta para que siempre sea válida desde el cliente admin
+        if (preg_match('/^https?:\/\//i', $ruta_raw)) {
+            $url_final = $ruta_raw;
+        } else {
+            // Remueve guiones diagonales iniciales o prefijos '../' extras guardados en BD
+            $ruta_limpia = ltrim($ruta_raw, '/.');
+            $ruta_limpia = ltrim($ruta_limpia, '/');
+            $url_final = "../" . $ruta_limpia;
         }
 
-        // Construir las URLs completas en HTTPS para Flutter o la web
-        $urlsCompletas = array_map(function($ruta) use ($baseUrl) {
-            $rutaLimpia = ltrim($ruta, '/');
-            return filter_var($ruta, FILTER_VALIDATE_URL) ? $ruta : $baseUrl . $rutaLimpia;
-        }, $listaImagenes);
-
-        return [
-            'id_galeria' => $item['id_galeria'],
-            'id_servicio' => $item['id_servicio'],
-            'titulo_concepto' => $item['titulo_concepto'],
-            'descripcion_concepto' => $item['descripcion_concepto'],
-            'tipo_archivo' => $item['tipo_archivo'],
-            'imagenes' => $listaImagenes,      // Lista de rutas relativas
-            'urls_completas' => $urlsCompletas, // Lista con URLs completas
-            'fecha_subida' => $item['fecha_subida']
+        $resultado[] = [
+            'id_galeria' => (int)$row['id_galeria'],
+            'id_servicio' => (int)$row['id_servicio'],
+            'ruta_archivo' => $row['ruta_archivo'],
+            'url_completa' => $url_final,
+            'tipo_archivo' => $row['tipo_archivo'] ?? 'imagen'
         ];
-    }, $conceptos);
+    }
 
     echo json_encode([
         'status' => 'success',
-        'tipo' => $tipo,
-        'id_entidad' => $idEntidad,
-        'total' => count($dataFormateada),
-        'data' => $dataFormateada
-    ], JSON_UNESCAPED_SLASHES);
+        'data' => $resultado
+    ]);
 
 } catch (PDOException $e) {
     echo json_encode([
         'status' => 'error',
-        'message' => 'Error al consultar la base de datos: ' . $e->getMessage()
+        'message' => 'Error en la base de datos: ' . $e->getMessage()
     ]);
 }
-?>
