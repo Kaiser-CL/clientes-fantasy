@@ -28,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $telefono_cliente = trim($_POST['telefono_cliente'] ?? '');
 
             if (!empty($correo_cliente) && !empty($nombre_cliente)) {
-                // CORREGIDO: correo_usuario -> email
                 $stmt_chk = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE email = ? LIMIT 1");
                 $stmt_chk->execute([$correo_cliente]);
                 $user_found = $stmt_chk->fetch(PDO::FETCH_ASSOC);
@@ -39,7 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     $pass_default = password_hash('fantasy2026', PASSWORD_BCRYPT);
                     $id_empleado_logueado = $_SESSION['id_usuario'] ?? null;
                     
-                    // CORREGIDO: correo_usuario -> email
                     $stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, ?)");
                     $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default, $id_empleado_logueado]);   
                     $id_usuario_final = $pdo->lastInsertId();
@@ -56,7 +54,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $fecha_evento = $_POST['fecha_evento'] ?? null;
         $hora_evento = $_POST['hora_evento'] ?? null;
         $salon_evento = $_POST['salon_evento'] ?? 'jardin';
+        $num_personas = intval($_POST['num_personas'] ?? 50);
         $id_paquete = $_POST['id_paquete'] ?? null;
+
+        // Límite estricto de aforo para Jardín
+        if (strtolower($salon_evento) === 'jardin' && $num_personas > 150) {
+            $num_personas = 150;
+        }
 
         // Asignar ID de sucursal según selección (1 = Jardín, 2 = Carmelo)
         $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
@@ -82,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     }
                 }
             } catch (Exception $e_pivot) {
-                // Si la tabla evento_servicio difiere, el evento principal ya quedó guardado
+                // Registro pivot omitido si no coincide
             }
         }
 
@@ -99,22 +103,14 @@ $paquetes = [];
 $servicios_extra = [];
 
 if (isset($pdo)) {
-    // Consultar lista de clientes (id_rol = 2)
     try {
-        // CORREGIDO: correo_usuario -> email
         $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, email FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
         $clientes_lista = $stmt_cli->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        try {
-            // CORREGIDO: correo_usuario -> email
-            $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, email FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
-            $clientes_lista = $stmt_cli->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e2) {
-            $clientes_lista = [];
-        }
+        $clientes_lista = [];
     }
 
-    // Consultar catálogo de servicios (Paquetes y Extras)
+    // Consultar catálogo de servicios completos con tipo_cobro, es_por_persona y ubicacion
     try {
         $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
             WHERE (LOWER(tipo_registro) = 'paquete' OR LOWER(nombre_servicio) LIKE '%paquete%') 
@@ -123,7 +119,7 @@ if (isset($pdo)) {
         $paquetes = $stmt_paquetes->fetchAll(PDO::FETCH_ASSOC);
 
         $stmt_extras = $pdo->query("SELECT * FROM servicios 
-            WHERE (LOWER(tipo_registro) = 'servicio_extra' OR tipo_registro IS NULL OR tipo_registro = '') 
+            WHERE (LOWER(tipo_registro) = 'servicio_extra' OR tipo_registro IS NULL OR tipo_registro = '' OR LOWER(tipo_registro) = 'servicio') 
               AND LOWER(nombre_servicio) NOT LIKE '%paquete%' 
               AND disponible_servicio = 1 
             ORDER BY nombre_servicio ASC");
@@ -191,7 +187,6 @@ if (isset($pdo)) {
                                     <option value="">-- Crear Nuevo Cliente Abajo --</option>
                                     <?php foreach ($clientes_lista as $cli): ?>
                                         <option value="<?= $cli['id_usuario'] ?>">
-                                            <!-- CORREGIDO: correo_usuario -> email -->
                                             <?= htmlspecialchars(trim(($cli['nombre_usuario'] ?? '') . ' ' . ($cli['apellidos_usuario'] ?? ''))) ?> (<?= htmlspecialchars($cli['email'] ?? '') ?>)
                                         </option>
                                     <?php endforeach; ?>
@@ -241,13 +236,17 @@ if (isset($pdo)) {
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Salón / Ubicación</label>
-                                    <select name="salon_evento" class="form-select" required>
-                                        <option value="">Seleccionar Salón</option>
-                                        <option value="Salón Jardín">Salón Jardín</option>
-                                        <option value="Salón Carmelo">Salón Carmelo</option>
+                                    <select name="salon_evento" id="salon_evento" class="form-select" onchange="filtrarPorUbicacion()" required>
+                                        <option value="jardin">Salón Jardín</option>
+                                        <option value="carmelo">Salón Carmelo</option>
                                     </select>
                                 </div>
                                 <div class="col-md-6">
+                                    <label class="form-label">Número de Personas (Invitados)</label>
+                                    <input type="number" name="num_personas" id="num_personas" class="form-control" value="50" min="1" max="150" oninput="validarAforo()" required>
+                                    <small id="msg-aforo" class="text-danger fw-bold d-none mt-1">⚠️ Aforo máximo en Jardín alcanzado (150 personas).</small>
+                                </div>
+                                <div class="col-12">
                                     <label class="form-label">Nombre del Evento</label>
                                     <input type="text" name="nombre_evento" class="form-control" placeholder="Ej. Cumpleaños de Sofía" required>
                                 </div>
@@ -268,10 +267,16 @@ if (isset($pdo)) {
                             <div class="mb-4">
                                 <label class="form-label">Seleccionar Paquete Base</label>
                                 <select name="id_paquete" id="select_paquete" class="form-select" onchange="calcularTotales()" required>
-                                    <option value="" data-precio="0">-- Seleccionar Paquete Base --</option>
-                                    <?php foreach ($paquetes as $p): ?>
-                                        <option value="<?= $p['id_servicio'] ?>" data-precio="<?= $p['precio_servicio'] ?>">
-                                            <?= htmlspecialchars($p['nombre_servicio']) ?> ($<?= number_format((float)$p['precio_servicio'], 2) ?>)
+                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="0">-- Seleccionar Paquete Base --</option>
+                                    <?php foreach ($paquetes as $p): 
+                                        $es_pp = ($p['es_por_persona'] == 1 || strtolower($p['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
+                                        $ubi = strtolower($p['ubicacion'] ?? 'ambos');
+                                    ?>
+                                        <option value="<?= $p['id_servicio'] ?>" 
+                                                data-precio="<?= $p['precio_servicio'] ?>" 
+                                                data-ubicacion="<?= $ubi ?>" 
+                                                data-por-persona="<?= $es_pp ?>">
+                                            <?= htmlspecialchars($p['nombre_servicio']) ?> ($<?= number_format((float)$p['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' c/u' : '' ?>)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -328,9 +333,16 @@ if (isset($pdo)) {
                 <label class="form-label">Seleccionar Extra del Catálogo:</label>
                 <select id="select_extra_modal" class="form-select mb-3">
                     <option value="">-- Seleccionar --</option>
-                    <?php foreach ($servicios_extra as $ext): ?>
-                        <option value="<?= $ext['id_servicio'] ?>" data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>" data-precio="<?= $ext['precio_servicio'] ?>">
-                            <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?>)
+                    <?php foreach ($servicios_extra as $ext): 
+                        $es_pp = ($ext['es_por_persona'] == 1 || strtolower($ext['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
+                        $ubi = strtolower($ext['ubicacion'] ?? 'ambos');
+                    ?>
+                        <option value="<?= $ext['id_servicio'] ?>" 
+                                data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>" 
+                                data-precio="<?= $ext['precio_servicio'] ?>"
+                                data-ubicacion="<?= $ubi ?>"
+                                data-por-persona="<?= $es_pp ?>">
+                            <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' / persona' : '' ?>)
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -350,6 +362,7 @@ let modalExtras = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     modalExtras = new bootstrap.Modal(document.getElementById('modalExtras'));
+    filtrarPorUbicacion();
 });
 
 function evaluarClienteExistente() {
@@ -366,6 +379,71 @@ function evaluarClienteExistente() {
     }
 }
 
+// Validar aforo máximo (150 personas en Jardín)
+function validarAforo() {
+    let salon = document.getElementById('salon_evento').value.toLowerCase();
+    let numInput = document.getElementById('num_personas');
+    let msgAforo = document.getElementById('msg-aforo');
+    let val = parseInt(numInput.value) || 0;
+
+    if (salon === 'jardin' || salon.includes('jardín')) {
+        if (val > 150) {
+            numInput.value = 150;
+            msgAforo.classList.remove('d-none');
+        } else {
+            msgAforo.classList.add('d-none');
+        }
+    } else {
+        msgAforo.classList.add('d-none');
+    }
+
+    calcularTotales();
+}
+
+// Filtrar catálogo según la ubicación seleccionada (Jardín vs Carmelo)
+function filtrarPorUbicacion() {
+    let salon = document.getElementById('salon_evento').value.toLowerCase();
+    let esJardin = salon === 'jardin' || salon.includes('jardín');
+    let selectPaquete = document.getElementById('select_paquete');
+    let selectExtraModal = document.getElementById('select_extra_modal');
+
+    // 1. Filtrar Paquetes
+    let paqueteSeleccionadoValido = false;
+    Array.from(selectPaquete.options).forEach(opt => {
+        let ubi = opt.getAttribute('data-ubicacion') || 'ambos';
+        if (opt.value === '') return;
+
+        if (ubi === 'ambos' || (esJardin && ubi === 'jardin') || (!esJardin && ubi === 'carmelo')) {
+            opt.style.display = 'block';
+            opt.disabled = false;
+            if (opt.selected) paqueteSeleccionadoValido = true;
+        } else {
+            opt.style.display = 'none';
+            opt.disabled = true;
+        }
+    });
+
+    if (!paqueteSeleccionadoValido) {
+        selectPaquete.value = '';
+    }
+
+    // 2. Filtrar Extras del Modal
+    Array.from(selectExtraModal.options).forEach(opt => {
+        let ubi = opt.getAttribute('data-ubicacion') || 'ambos';
+        if (opt.value === '') return;
+
+        if (ubi === 'ambos' || (esJardin && ubi === 'jardin') || (!esJardin && ubi === 'carmelo')) {
+            opt.style.display = 'block';
+            opt.disabled = false;
+        } else {
+            opt.style.display = 'none';
+            opt.disabled = true;
+        }
+    });
+
+    validarAforo();
+}
+
 function abrirModalExtras() {
     document.getElementById('select_extra_modal').value = '';
     modalExtras.show();
@@ -379,8 +457,9 @@ function confirmarAgregarExtra() {
     let id = option.value;
     let nombre = option.getAttribute('data-nombre');
     let precio = parseFloat(option.getAttribute('data-precio')) || 0;
+    let esPorPersona = option.getAttribute('data-por-persona') === '1';
 
-    extrasSeleccionados.push({ id, nombre, precio });
+    extrasSeleccionados.push({ id, nombre, precio, esPorPersona });
     renderizarExtras();
     calcularTotales();
     modalExtras.hide();
@@ -403,8 +482,9 @@ function renderizarExtras() {
     cont.className = "border rounded p-2 mb-4 bg-white";
     let html = '<ul class="list-group list-group-flush">';
     extrasSeleccionados.forEach((item, index) => {
+        let textoCobro = item.esPorPersona ? ' c/u' : '';
         html += `<li class="list-group-item d-flex justify-content-between align-items-center px-2 py-1">
-            <span class="fw-semibold text-dark fs-6">${item.nombre} ($${item.precio.toFixed(2)})</span>
+            <span class="fw-semibold text-dark fs-6">${item.nombre} ($${item.precio.toFixed(2)}${textoCobro})</span>
             <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="eliminarExtra(${index})">&times;</button>
             <input type="hidden" name="extras[]" value="${item.id}">
         </li>`;
@@ -414,15 +494,26 @@ function renderizarExtras() {
 }
 
 function calcularTotales() {
+    let numPersonas = parseInt(document.getElementById('num_personas').value) || 1;
     let selectPaquete = document.getElementById('select_paquete');
     let optionPaquete = selectPaquete.options[selectPaquete.selectedIndex];
-    let precioPaquete = parseFloat(optionPaquete.getAttribute('data-precio')) || 0;
 
-    let precioExtras = extrasSeleccionados.reduce((sum, item) => sum + item.precio, 0);
-    let total = precioPaquete + precioExtras;
+    let precioBasePaquete = parseFloat(optionPaquete.getAttribute('data-precio')) || 0;
+    let esPaquetePorPersona = optionPaquete.getAttribute('data-por-persona') === '1';
 
-    document.getElementById('txt-subtotal-paquete').innerText = '$' + precioPaquete.toFixed(2);
-    document.getElementById('txt-subtotal-extras').innerText = '$' + precioExtras.toFixed(2);
+    // Subtotal del Paquete
+    let subtotalPaquete = esPaquetePorPersona ? (precioBasePaquete * numPersonas) : precioBasePaquete;
+
+    // Subtotal de Extras
+    let subtotalExtras = extrasSeleccionados.reduce((sum, item) => {
+        let costoItem = item.esPorPersona ? (item.precio * numPersonas) : item.precio;
+        return sum + costoItem;
+    }, 0);
+
+    let total = subtotalPaquete + subtotalExtras;
+
+    document.getElementById('txt-subtotal-paquete').innerText = '$' + subtotalPaquete.toFixed(2);
+    document.getElementById('txt-subtotal-extras').innerText = '$' + subtotalExtras.toFixed(2);
     document.getElementById('txt-total-referencia').innerText = '$' + total.toFixed(2);
 }
 </script>
