@@ -79,19 +79,19 @@ if (isset($pdo)) {
     try {
         // Consulta principal de eventos relacionando con usuarios
         $sql_eventos = "SELECT 
-                            e.id_evento,
-                            e.nombre_evento,
-                            e.fecha_evento,
-                            e.hora_evento,
-                            e.ubicacion,
-                            e.estado,
-                            u.nombre_usuario,
-                            u.apellidos_usuario,
-                            u.telefono_usuario,
-                            u.correo_usuario
-                        FROM eventos e
-                        LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
-                        ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
+                    e.id_evento,
+                    e.nombre_evento,
+                    e.fecha_evento,
+                    e.hora_evento,
+                    e.ubicacion,
+                    e.estado,
+                    u.nombre_usuario,
+                    u.apellidos_usuario,
+                    u.telefono_usuario,
+                    u.email
+                FROM eventos e
+                LEFT JOIN usuarios u ON e.id_cliente = u.id_usuario
+                ORDER BY e.fecha_evento DESC, e.hora_evento DESC";
         $stmt_e = $pdo->query($sql_eventos);
         $eventos_raw = $stmt_e->fetchAll(PDO::FETCH_ASSOC);
 
