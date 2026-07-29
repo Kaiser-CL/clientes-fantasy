@@ -32,6 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             // 2. Si se agrega un nuevo servicio extra en el modal
             if (!empty($_POST['nuevo_id_servicio'])) {
                 $id_serv = intval($_POST['nuevo_id_servicio']);
+                $cant_input = intval($_POST['nueva_cantidad_servicio'] ?? 1);
+                if ($cant_input < 1) $cant_input = 1;
                 
                 // Consultar precio y regla de cobro del servicio
                 $stmt_s_info = $pdo->prepare("SELECT precio_servicio, tipo_cobro, es_por_persona FROM servicios WHERE id_servicio = ?");
@@ -42,10 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     $precio = floatval($s_info['precio_servicio']);
                     $es_p_persona = ($s_info['tipo_cobro'] === 'por_persona' || intval($s_info['es_por_persona']) === 1);
                     
-                    $cantidad = $es_p_persona ? $num_personas : 1;
-                    $subtotal = $es_p_persona ? ($precio * $num_personas) : $precio;
+                    // Si es por persona, la cantidad son los invitados; si es fijo/individual, toma la cantidad ingresada
+                    $cantidad = $es_p_persona ? $num_personas : $cant_input;
+                    $subtotal = $es_p_persona ? ($precio * $num_personas) : ($precio * $cant_input);
 
-                    // INSERT con subtotal_servicio_evento para evitar el error SQLSTATE[HY000] 1364
+                    // INSERT en evento_servicio respetando cantidad y subtotal
                     $stmt_add_s = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
                     $stmt_add_s->execute([$id_evento, $id_serv, $cantidad, $subtotal]);
                 }
@@ -277,6 +280,7 @@ if (isset($pdo)) {
                                 <tr>
                                     <th>Servicio Extra</th>
                                     <th>Tipo de Cobro</th>
+                                    <th>Cantidad</th>
                                     <th>Subtotal</th>
                                     <th class="text-center">Acción</th>
                                 </tr>
@@ -287,17 +291,22 @@ if (isset($pdo)) {
 
                     <!-- AGREGAR SERVICIO EXTRA -->
                     <div class="row g-2 align-items-center mb-3">
-                        <div class="col-md-8">
-                            <select name="nuevo_id_servicio" class="form-select border-success">
-                                <option value="">-- Agregar Servicio Extra Adicional --</option>
-                                <?php foreach ($servicios_catalogo as $serv): ?>
-                                    <option value="<?= $serv['id_servicio'] ?>">
+                        <div class="col-md-6">
+                            <select name="nuevo_id_servicio" id="modal_select_nuevo_servicio" class="form-select border-success" onchange="evaluarMostrarCantidadExtra()">
+                                <option value="" data-es-por-persona="0">-- Agregar Servicio Extra Adicional --</option>
+                                <?php foreach ($servicios_catalogo as $serv): 
+                                    $es_p_pers = ($serv['tipo_cobro'] === 'por_persona' || intval($serv['es_por_persona']) === 1) ? 1 : 0;
+                                ?>
+                                    <option value="<?= $serv['id_servicio'] ?>" data-es-por-persona="<?= $es_p_pers ?>">
                                         <?= htmlspecialchars($serv['nombre_servicio']) ?> ($<?= number_format((float)$serv['precio_servicio'], 2) ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <input type="number" name="nueva_cantidad_servicio" id="modal_input_cantidad_extra" class="form-control border-success" value="1" min="1" placeholder="Cantidad">
+                        </div>
+                        <div class="col-md-3">
                             <button type="submit" class="btn btn-success w-100 fw-bold"><i class="fa-solid fa-plus me-1"></i> Agregar Extra</button>
                         </div>
                     </div>
@@ -367,8 +376,27 @@ function abrirModalDesglose(evt) {
     bootstrapModalHistorial.show();
 }
 
+function evaluarMostrarCantidadExtra() {
+    let select = document.getElementById('modal_select_nuevo_servicio');
+    let opt = select.options[select.selectedIndex];
+    let inputCant = document.getElementById('modal_input_cantidad_extra');
+
+    if (opt) {
+        let esPorPersona = opt.getAttribute('data-es-por-persona') === "1";
+        if (esPorPersona) {
+            inputCant.value = document.getElementById('modal_num_personas_slider').value;
+            inputCant.disabled = true;
+        } else {
+            inputCant.value = 1;
+            inputCant.disabled = false;
+        }
+    }
+}
+
 function actualizarPersonasModal(numPers) {
     document.getElementById('modal_label_num_personas').innerText = numPers + ' personas';
+    evaluarMostrarCantidadExtra();
+
     if (!modalEventoActual) return;
 
     let servicios = modalEventoActual.servicios_asociados || [];
@@ -380,7 +408,6 @@ function actualizarPersonasModal(numPers) {
         let tipoReg = (s.tipo_registro || '').toLowerCase();
         let nom = (s.nombre_servicio || '').toLowerCase();
 
-        // Es paquete si en tipo_registro o nombre incluye "paquete" / "básico" / "basico"
         let esPaqueteStrict = (tipoReg === 'paquete') || nom.includes('paquete') || nom.includes('básico') || nom.includes('basico');
 
         if (esPaqueteStrict && !paqueteFound) {
@@ -396,7 +423,7 @@ function actualizarPersonasModal(numPers) {
     let paqContainer = document.getElementById('modal_paquete_info');
     if (paqueteFound) {
         let precioU = parseFloat(paqueteFound.precio_servicio) || 0;
-        let subtotalPaq = precioU * numPers; // Multiplicado por el número de invitados
+        let subtotalPaq = precioU * numPers;
         totalCalculado += subtotalPaq;
 
         paqContainer.innerHTML = `
@@ -409,29 +436,30 @@ function actualizarPersonasModal(numPers) {
         paqContainer.innerHTML = '<span class="text-muted fw-bold"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i> Sin Paquete Base Registrado</span>';
     }
 
-    // 2. MOSTRAR SERVICIOS ADICIONALES (CADA UNO SEGÚN SU tipo_cobro / es_por_persona)
+    // 2. MOSTRAR SERVICIOS ADICIONALES
     let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
 
     if (extrasList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
     } else {
         extrasList.forEach(ext => {
             let precioU = parseFloat(ext.precio_servicio) || 0;
             let esPorPersona = (ext.tipo_cobro === 'por_persona' || parseInt(ext.es_por_persona) === 1);
+            let cantidadReal = parseInt(ext.cantidad_servicio_evento) || (esPorPersona ? numPers : 1);
             
-            // Si el extra se cobra por persona, responde al slider. Si es costo fijo (Mago Farid), no se multiplica.
-            let subtotalExtra = esPorPersona ? (precioU * numPers) : precioU;
+            let subtotalExtra = esPorPersona ? (precioU * numPers) : (precioU * cantidadReal);
             totalCalculado += subtotalExtra;
 
             let badgeCobro = esPorPersona 
                 ? `<span class="badge bg-info text-dark">Por Persona ($${precioU.toFixed(2)} &times; ${numPers})</span>`
-                : `<span class="badge bg-secondary">Costo Fijo Unico</span>`;
+                : `<span class="badge bg-secondary">Costo Fijo Unico ($${precioU.toFixed(2)} c/u)</span>`;
 
             let tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><strong class="text-dark">${ext.nombre_servicio}</strong></td>
                 <td>${badgeCobro}</td>
+                <td class="fw-bold text-center">${cantidadReal}</td>
                 <td class="fw-bold text-primary">$${subtotalExtra.toLocaleString('es-MX', {minimumFractionDigits: 2})}</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="eliminarExtraModal(${ext.id_evento_servicio})">
