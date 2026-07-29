@@ -18,39 +18,46 @@ if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
 }
 
 try {
-    $sql = "SELECT id_galeria, ruta_archivo, tipo_archivo, fecha_registro 
-            FROM servicio_galeria 
+    $sql = "SELECT id_galeria, id_servicio, titulo_concepto, descripcion_concepto, tipo_archivo, url_archivo, fecha_subida 
+            FROM galeria_conceptos 
             WHERE id_servicio = ? 
             ORDER BY id_galeria DESC";
             
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$idEntidad]);
-    $archivos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $conceptos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // CORRECCIÓN PARA RENDER: Forzar HTTPS y detectar el Host correctamente detrás del Reverse Proxy
+    // Detección de Host e IP en Render / HTTPS
     $protocolo = "https"; 
     $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'clientes-fantasy.onrender.com';
     $baseUrl = $protocolo . "://" . $host . "/";
 
-    // Formatear la lista asegurando la URL en HTTPS
+    // Decodificar la lista JSON y formatear la respuesta
     $dataFormateada = array_map(function($item) use ($baseUrl) {
-        $rutaLimpia = ltrim($item['ruta_archivo'], '/');
-        
-        // Si la ruta guardada ya es una URL externa completa (ej. Cloudinary/ImgBB), se respeta
-        if (filter_var($item['ruta_archivo'], FILTER_VALIDATE_URL)) {
-            $urlCompleta = $item['ruta_archivo'];
-        } else {
-            $urlCompleta = $baseUrl . $rutaLimpia;
+        $listaImagenes = json_decode($item['url_archivo'], true);
+
+        // Si no era JSON (registros antiguos), lo envolvemos como array de 1 elemento
+        if (!is_array($listaImagenes)) {
+            $listaImagenes = [$item['url_archivo']];
         }
+
+        // Construir las URLs completas en HTTPS para Flutter o la web
+        $urlsCompletas = array_map(function($ruta) use ($baseUrl) {
+            $rutaLimpia = ltrim($ruta, '/');
+            return filter_var($ruta, FILTER_VALIDATE_URL) ? $ruta : $baseUrl . $rutaLimpia;
+        }, $listaImagenes);
 
         return [
             'id_galeria' => $item['id_galeria'],
-            'ruta_archivo' => $rutaLimpia,
-            'url_completa' => $urlCompleta,
+            'id_servicio' => $item['id_servicio'],
+            'titulo_concepto' => $item['titulo_concepto'],
+            'descripcion_concepto' => $item['descripcion_concepto'],
             'tipo_archivo' => $item['tipo_archivo'],
-            'fecha_registro' => $item['fecha_registro']
+            'imagenes' => $listaImagenes,      // Lista de rutas relativas
+            'urls_completas' => $urlsCompletas, // Lista con URLs completas
+            'fecha_subida' => $item['fecha_subida']
         ];
-    }, $archivos);
+    }, $conceptos);
 
     echo json_encode([
         'status' => 'success',
