@@ -18,21 +18,23 @@ if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
     exit;
 }
 
-// Determinar la columna de la tabla galeria a filtrar
-$campoFiltro = ($tipo === 'paquetes') ? 'id_paquete' : 'id_extra';
-
 try {
-    $sql = "SELECT id, ruta_imagen, fecha_creacion FROM galeria WHERE {$campoFiltro} = ? ORDER BY id DESC";
+    // CORRECCIÓN: Se consulta 'servicio_galeria' usando 'id_servicio' y sus nombres reales de columna
+    $sql = "SELECT id_galeria, ruta_archivo, tipo_archivo, fecha_registro 
+            FROM servicio_galeria 
+            WHERE id_servicio = ? 
+            ORDER BY id_galeria DESC";
+            
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$idEntidad]);
-    $imagenes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $archivos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo json_encode([
         'status' => 'success',
         'tipo' => $tipo,
         'id_entidad' => $idEntidad,
-        'total' => count($imagenes),
-        'data' => $imagenes
+        'total' => count($archivos),
+        'data' => $archivos
     ], JSON_UNESCAPED_SLASHES);
 
 } catch (PDOException $e) {
