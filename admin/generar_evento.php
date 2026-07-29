@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 
         $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
 
-        // 3. INSERTAR EVENTO (INCLUYENDO NOTAS / COMENTARIOS)
+        // 3. INSERTAR EVENTO
         try {
             $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, num_personas, notas, estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmado')";
             $stmt_event = $pdo->prepare($sql_event);
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS)
         if ($id_evento_creado) {
             $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
-            $stmt_info = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ?");
+            $stmt_info = $pdo->prepare("SELECT precio_servicio, tipo_cobro, es_por_persona FROM servicios WHERE id_servicio = ?");
 
             // Paquete Base
             if ($id_paquete) {
@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 }
             }
 
-            // Extras con cantidad personalizada
+            // Extras con cálculo según modalidad
             if (!empty($_POST['extras_id']) && is_array($_POST['extras_id'])) {
                 foreach ($_POST['extras_id'] as $idx => $id_extra) {
                     $stmt_info->execute([$id_extra]);
@@ -102,8 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 
                     if ($ext_info) {
                         $precio_ext = floatval($ext_info['precio_servicio']);
+                        $es_persona = ($ext_info['tipo_cobro'] === 'por_persona' || intval($ext_info['es_por_persona']) === 1);
                         $cant_ext = intval($_POST['extras_cant'][$idx] ?? 1);
-                        $subtotal_ext = $precio_ext * $cant_ext;
+
+                        $subtotal_ext = $es_persona ? ($precio_ext * $cant_ext) : $precio_ext;
 
                         $stmt_es->execute([$id_evento_creado, $id_extra, $cant_ext, $subtotal_ext]);
                     }
@@ -130,16 +132,10 @@ if (isset($pdo)) {
     } catch (PDOException $e) { $clientes_lista = []; }
 
     try {
-        $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
-            WHERE LOWER(tipo_registro) = 'paquete' 
-              AND disponible_servicio = 1 
-            ORDER BY nombre_servicio ASC");
+        $stmt_paquetes = $pdo->query("SELECT * FROM servicios WHERE LOWER(tipo_registro) = 'paquete' AND disponible_servicio = 1 ORDER BY nombre_servicio ASC");
         $paquetes_catalogo = $stmt_paquetes->fetchAll(PDO::FETCH_ASSOC);
 
-        $stmt_extras = $pdo->query("SELECT * FROM servicios 
-            WHERE (LOWER(tipo_registro) != 'paquete' OR tipo_registro IS NULL OR tipo_registro = '') 
-              AND disponible_servicio = 1 
-            ORDER BY nombre_servicio ASC");
+        $stmt_extras = $pdo->query("SELECT * FROM servicios WHERE (LOWER(tipo_registro) != 'paquete' OR tipo_registro IS NULL OR tipo_registro = '') AND disponible_servicio = 1 ORDER BY nombre_servicio ASC");
         $extras_catalogo = $stmt_extras->fetchAll(PDO::FETCH_ASSOC);
 
     } catch (PDOException $e) {
@@ -334,7 +330,7 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL AGREGAR EXTRA (ETIQUETA DINÁMICA POR PERSONA / POR UNIDAD) -->
+<!-- MODAL AGREGAR EXTRA (SLIDER SOLO SI ES POR PERSONA) -->
 <div class="modal fade" id="modalAgregarExtra" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -348,7 +344,7 @@ if (isset($pdo)) {
                     <select id="modal_select_extra" class="form-select" onchange="evaluarModalExtraPrecio()">
                         <option value="" data-precio="0" data-tipo-cobro="fijo">-- Seleccionar Servicio --</option>
                         <?php foreach ($extras_catalogo as $ext): 
-                            $es_p = ($ext['tipo_cobro'] === 'por_persona' || intval($ext['es_por_persona']) === 1) ? 'persona' : 'unidad';
+                            $es_p = ($ext['tipo_cobro'] === 'por_persona' || intval($ext['es_por_persona']) === 1) ? 'persona' : 'fijo';
                         ?>
                             <option value="<?= $ext['id_servicio'] ?>" 
                                     data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>"
@@ -359,11 +355,17 @@ if (isset($pdo)) {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label fw-bold" id="lbl_modal_generar_extra_cant">Cantidad / Unidades:</label>
-                    <input type="number" id="modal_cant_extra" class="form-control" value="1" min="1" oninput="evaluarModalExtraPrecio()">
+
+                <!-- SLIDER PARA EXTRAS POR PERSONA -->
+                <div id="wrapper_slider_extra_generar" class="mb-3 d-none bg-light p-3 rounded border">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-bold mb-0">Número de Personas:</label>
+                        <span class="badge bg-primary fs-6 fw-bold" id="lbl_val_slider_extra_generar">50 personas</span>
+                    </div>
+                    <input type="range" class="form-range" id="slider_extra_personas_generar" min="5" max="300" step="5" value="50" oninput="sincronizarSliderExtraGenerar()">
                 </div>
-                <div class="text-primary fw-bold fs-6" id="lbl_subtotal_extra_preview"></div>
+
+                <div class="text-primary fw-bold fs-6 mt-2" id="lbl_subtotal_extra_preview"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cancelar</button>
@@ -448,34 +450,40 @@ function filtrarPorUbicacion() {
 
 function abrirModalExtra() {
     document.getElementById('modal_select_extra').value = '';
-    document.getElementById('modal_cant_extra').value = '1';
+    document.getElementById('slider_extra_personas_generar').value = '50';
+    document.getElementById('wrapper_slider_extra_generar').classList.add('d-none');
     document.getElementById('lbl_subtotal_extra_preview').innerText = '';
-    document.getElementById('lbl_modal_generar_extra_cant').innerText = 'Cantidad / Unidades:';
 }
 
 function evaluarModalExtraPrecio() {
     let select = document.getElementById('modal_select_extra');
     let opt = select.options[select.selectedIndex];
-    let cant = parseInt(document.getElementById('modal_cant_extra').value) || 1;
+    let wrapperSlider = document.getElementById('wrapper_slider_extra_generar');
     let lblSubtotal = document.getElementById('lbl_subtotal_extra_preview');
-    let lblCant = document.getElementById('lbl_modal_generar_extra_cant');
 
     if (opt && opt.value) {
         let precio = parseFloat(opt.getAttribute('data-precio')) || 0;
         let tipoCobro = opt.getAttribute('data-tipo-cobro');
 
         if (tipoCobro === 'persona') {
-            lblCant.innerText = 'Número de Personas:';
+            wrapperSlider.classList.remove('d-none');
+            let cant = parseInt(document.getElementById('slider_extra_personas_generar').value) || 50;
+            let total = precio * cant;
+            lblSubtotal.innerText = `Subtotal estimado: $${precio.toFixed(2)} × ${cant} personas = $${total.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
         } else {
-            lblCant.innerText = 'Cantidad / Unidades:';
+            wrapperSlider.classList.add('d-none');
+            lblSubtotal.innerText = `Costo Fijo Único: $${precio.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
         }
-
-        let total = precio * cant;
-        lblSubtotal.innerText = `Subtotal: $${precio.toFixed(2)} × ${cant} = $${total.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
     } else {
-        lblCant.innerText = 'Cantidad / Unidades:';
+        wrapperSlider.classList.add('d-none');
         lblSubtotal.innerText = '';
     }
+}
+
+function sincronizarSliderExtraGenerar() {
+    let val = document.getElementById('slider_extra_personas_generar').value;
+    document.getElementById('lbl_val_slider_extra_generar').innerText = val + ' personas';
+    evaluarModalExtraPrecio();
 }
 
 function confirmarAgregarExtra() {
@@ -486,14 +494,23 @@ function confirmarAgregarExtra() {
     let opt = select.options[select.selectedIndex];
     let nombre = opt.getAttribute('data-nombre');
     let precio = parseFloat(opt.getAttribute('data-precio')) || 0;
-    let cantidad = parseInt(document.getElementById('modal_cant_extra').value) || 1;
+    let tipoCobro = opt.getAttribute('data-tipo-cobro');
+
+    let cantidad = 1;
+    let subtotal = precio;
+
+    if (tipoCobro === 'persona') {
+        cantidad = parseInt(document.getElementById('slider_extra_personas_generar').value) || 50;
+        subtotal = precio * cantidad;
+    }
 
     extrasAgregados.push({
         id_servicio: id,
         nombre: nombre,
         precio: precio,
         cantidad: cantidad,
-        subtotal: precio * cantidad
+        subtotal: subtotal,
+        es_persona: (tipoCobro === 'persona')
     });
 
     renderizarExtrasUI();
@@ -516,9 +533,12 @@ function renderizarExtrasUI() {
     extrasAgregados.forEach((item, index) => {
         let div = document.createElement('div');
         div.className = 'd-flex justify-content-between align-items-center border-bottom py-2 text-start';
+        
+        let detalleTexto = item.es_persona ? `(${item.cantidad} personas x $${item.precio.toFixed(2)})` : `($${item.precio.toFixed(2)} Pago Único)`;
+
         div.innerHTML = `
             <div>
-                <strong class="text-dark fs-6">${item.nombre}</strong> <small class="text-muted">(${item.cantidad} x $${item.precio.toFixed(2)})</small>
+                <strong class="text-dark fs-6">${item.nombre}</strong> <small class="text-muted">${detalleTexto}</small>
                 <input type="hidden" name="extras_id[]" value="${item.id_servicio}">
                 <input type="hidden" name="extras_cant[]" value="${item.cantidad}">
             </div>
