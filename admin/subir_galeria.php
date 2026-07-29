@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $totalSubidos = 0;
         $archivos = $_FILES['imagenes'];
-        $extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp'];
+        $extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
 
         for ($i = 0; $i < count($archivos['name']); $i++) {
             
@@ -43,10 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $tmpName = $archivos['tmp_name'][$i];
                 $extension = strtolower(pathinfo($archivos['name'][$i], PATHINFO_EXTENSION));
                 
-                // Verificar extensión de imagen
+                // Verificar extensión
                 if (!in_array($extension, $extensionesPermitidas)) {
                     continue; 
                 }
+
+                // Definir el tipo de archivo (video o imagen) para tu columna ENUM
+                $tipoArchivo = in_array($extension, ['mp4', 'mov']) ? 'video' : 'imagen';
 
                 // Generar nombre único para no sobrescribir nada
                 $nombreArchivo = uniqid("img_") . "." . $extension;
@@ -58,15 +61,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Ruta relativa que se almacenará en la Base de Datos
                     $rutaRelativaBD = "Images/" . $tipo . "/" . $idEntidad . "/" . $nombreArchivo;
 
-                    // Insertar según el tipo de entidad
-                    if ($tipo === 'paquetes') {
-                        $sql = "INSERT INTO galeria (id_paquete, ruta_imagen) VALUES (?, ?)";
-                    } else {
-                        $sql = "INSERT INTO galeria (id_extra, ruta_imagen) VALUES (?, ?)";
-                    }
+                    // CORRECCIÓN AQUÍ: Se usa la tabla 'servicio_galeria' y sus columnas correctas
+                    $sql = "INSERT INTO servicio_galeria (id_servicio, ruta_archivo, tipo_archivo) VALUES (?, ?, ?)";
 
                     $stmt = $pdo->prepare($sql);
-                    $stmt->execute([$idEntidad, $rutaRelativaBD]);
+                    $stmt->execute([$idEntidad, $rutaRelativaBD, $tipoArchivo]);
                     
                     $totalSubidos++;
                 }
@@ -75,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         echo json_encode([
             'status' => 'success', 
-            'message' => "Se subieron {$totalSubidos} imágenes correctamente.",
+            'message' => "Se subieron {$totalSubidos} archivos correctamente.",
             'id_entidad' => $idEntidad,
             'tipo' => $tipo
         ]);
