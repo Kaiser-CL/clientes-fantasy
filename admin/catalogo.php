@@ -21,7 +21,7 @@ if (isset($_SESSION['error_db'])) {
     unset($_SESSION['error_db']);
 }
 
-// --- PROCESAR POST (GUARDAR / EDITAR / ELIMINAR) ---
+// --- PROCESAR POST (GUARDAR / EDITAR / ELIMINAR SERVICIO) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     $accion = $_POST['accion'] ?? '';
 
@@ -324,7 +324,7 @@ if (isset($pdo)) {
 
                 <div class="alert alert-warning py-2 px-3 small fw-bold mb-3">
                     <i class="fa-solid fa-circle-info me-1"></i> Recomendación de Servidor:
-                    Para mantener los 50 GB de Hostinger óptimos, sube fotos comprimidas y videos cortos en .mp4.
+                    Para mantener el servidor óptimo, sube fotos comprimidas y videos cortos en .mp4.
                 </div>
 
                 <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-images me-1"></i> Archivos cargados actualmente:</h6>
@@ -348,7 +348,13 @@ let bsModalGaleria = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     modalInstancia = new bootstrap.Modal(document.getElementById('modalCatalogo'));
-    bsModalGaleria = new bootstrap.Modal(document.getElementById('modalGaleria'));
+    let modalGaleriaElement = document.getElementById('modalGaleria');
+    bsModalGaleria = new bootstrap.Modal(modalGaleriaElement);
+
+    // RECARGAR LA PÁGINA AL CERRAR EL MODAL PARA ACTUALIZAR LOS CONTADORES
+    modalGaleriaElement.addEventListener('hidden.bs.modal', function () {
+        location.reload();
+    });
 
     let dropzone = document.getElementById('dropzone_target');
     ['dragenter', 'dragover'].forEach(eName => {
@@ -392,7 +398,6 @@ function editarServicio(s) {
 
 function abrirModalGaleria(idServicio, nombreServicio, tipoRegistro) {
     document.getElementById('galeria_id_servicio').value = idServicio;
-    // Normalizar el tipo a 'paquetes' o 'extras' para coincidir con la API
     let tipo = (tipoRegistro === 'paquete') ? 'paquetes' : 'extras';
     document.getElementById('galeria_tipo_registro').value = tipo;
 
@@ -430,13 +435,14 @@ function cargarGaleriaServicio(idServicio, tipo) {
             let div = document.createElement('div');
             div.className = 'thumb-container';
 
+            let idGaleria = item.id_galeria || item.id;
             let mediaHTML = (item.tipo_archivo === 'video')
                 ? `<video class="preview-thumb" src="../${item.ruta_archivo}" muted></video>`
                 : `<img src="../${item.ruta_archivo}" class="preview-thumb">`;
 
             div.innerHTML = `
                 ${mediaHTML}
-                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${item.id_galeria || item.id})">&times;</button>
+                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${idGaleria})">&times;</button>
             `;
             contenedor.appendChild(div);
         });
@@ -473,12 +479,12 @@ function subirArchivosGaleria(files) {
     .then(data => {
         if (data.status === 'success' || data.exito) {
             statusBox.className = 'alert alert-success py-2 fw-bold small';
-            statusBox.innerText = '✓ ' + (data.message || data.mensaje || 'Archivos subidos con éxito.');
+            statusBox.innerText = '✓ ' + (data.message || 'Archivos subidos con éxito.');
             cargarGaleriaServicio(idServicio, tipo);
-            setTimeout(() => { statusBox.classList.add('d-none'); }, 2500);
+            setTimeout(() => { statusBox.classList.add('d-none'); }, 2000);
         } else {
             statusBox.className = 'alert alert-danger py-2 fw-bold small';
-            statusBox.innerText = 'Error: ' + (data.message || data.error || 'No se pudieron subir los archivos.');
+            statusBox.innerText = 'Error: ' + (data.message || 'No se pudieron subir los archivos.');
         }
     })
     .catch(err => {
@@ -503,7 +509,12 @@ function eliminarFotoGaleria(idGaleria) {
                 let idServicio = document.getElementById('galeria_id_servicio').value;
                 let tipo = document.getElementById('galeria_tipo_registro').value;
                 cargarGaleriaServicio(idServicio, tipo);
+            } else {
+                alert('Error al eliminar: ' + (data.message || 'No se pudo procesar.'));
             }
+        })
+        .catch(err => {
+            alert('Error de red al intentar eliminar la imagen.');
         });
     }
 }
