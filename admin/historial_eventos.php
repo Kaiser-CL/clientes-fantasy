@@ -12,8 +12,31 @@ require_once __DIR__ . '/../db_config.php';
 $mensaje = '';
 $error_db = null;
 
-// --- PROCESAR CAMBIOS EN EL EVENTO ---
+// --- PROCESAR CAMBIOS Y ELIMINACIÓN DE EVENTOS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
+    
+    // A) ELIMINAR EVENTO COMPLETO
+    if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'eliminar_evento') {
+        try {
+            $id_evento_eliminar = intval($_POST['id_evento']);
+
+            if ($id_evento_eliminar > 0) {
+                // 1. Borrar servicios asociados al evento en evento_servicio
+                $stmt_del_servs = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento = ?");
+                $stmt_del_servs->execute([$id_evento_eliminar]);
+
+                // 2. Borrar el evento principal
+                $stmt_del_evt = $pdo->prepare("DELETE FROM eventos WHERE id_evento = ?");
+                $stmt_del_evt->execute([$id_evento_eliminar]);
+
+                $mensaje = "El Evento #" . $id_evento_eliminar . " ha sido eliminado correctamente.";
+            }
+        } catch (Exception $e) {
+            $error_db = "Error al eliminar el evento: " . $e->getMessage();
+        }
+    }
+
+    // B) GUARDAR CAMBIOS O EDICIONES EN EL EVENTO
     if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'guardar_cambios') {
         try {
             $id_evento = intval($_POST['id_evento']);
@@ -64,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 }
             }
 
-            // 4. Si se elimina un servicio del evento
+            // 4. Si se elimina un servicio individual del evento
             if (!empty($_POST['eliminar_id_evento_servicio'])) {
                 $id_es = intval($_POST['eliminar_id_evento_servicio']);
                 $stmt_del_s = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento_servicio = ?");
@@ -213,7 +236,7 @@ if (isset($pdo)) {
                                 <th>Fecha y Hora</th>
                                 <th>Salón</th>
                                 <th>Estado</th>
-                                <th class="text-center">Acción</th>
+                                <th class="text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -246,9 +269,14 @@ if (isset($pdo)) {
                                         <td><span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($evt['ubicacion'] ?? 'Jardín')) ?></span></td>
                                         <td><span class="badge-estado <?= $badge_cls ?>"><?= ucfirst($estado) ?></span></td>
                                         <td class="text-center">
-                                            <button type="button" class="btn btn-sm btn-primary fw-bold btn-abrir-modal" data-evento="<?= $data_json ?>">
-                                                <i class="fa-solid fa-eye me-1"></i> Ver / Editar
-                                            </button>
+                                            <div class="btn-group">
+                                                <button type="button" class="btn btn-sm btn-primary fw-bold btn-abrir-modal" data-evento="<?= $data_json ?>">
+                                                    <i class="fa-solid fa-eye me-1"></i> Ver / Editar
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-danger fw-bold" onclick="confirmarEliminarDirecto(<?= $evt['id_evento'] ?>, '<?= htmlspecialchars($evt['nombre_evento'], ENT_QUOTES) ?>')">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -277,7 +305,7 @@ if (isset($pdo)) {
                                     <th>Fecha y Hora</th>
                                     <th>Salón</th>
                                     <th>Estado</th>
-                                    <th class="text-center">Acción</th>
+                                    <th class="text-center">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -310,9 +338,14 @@ if (isset($pdo)) {
                                             <td><span class="badge bg-secondary"><?= htmlspecialchars(ucfirst($evt['ubicacion'] ?? 'Jardín')) ?></span></td>
                                             <td><span class="badge-estado <?= $badge_cls ?>"><?= ucfirst($estado) ?></span></td>
                                             <td class="text-center">
-                                                <button type="button" class="btn btn-sm btn-outline-primary fw-bold btn-abrir-modal" data-evento="<?= $data_json ?>">
-                                                    <i class="fa-solid fa-eye me-1"></i> Ver / Editar
-                                                </button>
+                                                <div class="btn-group">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold btn-abrir-modal" data-evento="<?= $data_json ?>">
+                                                        <i class="fa-solid fa-eye me-1"></i> Ver / Editar
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="confirmarEliminarDirecto(<?= $evt['id_evento'] ?>, '<?= htmlspecialchars($evt['nombre_evento'], ENT_QUOTES) ?>')">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -327,6 +360,12 @@ if (isset($pdo)) {
     </div>
 </div>
 
+<!-- FORMULARIO OCULTO PARA ELIMINAR EVENTOS -->
+<form action="" method="POST" id="form_eliminar_evento_directo">
+    <input type="hidden" name="accion_evento" value="eliminar_evento">
+    <input type="hidden" name="id_evento" id="id_evento_eliminar_input">
+</form>
+
 <!-- MODAL VER / EDITAR EVENTO -->
 <div class="modal fade" id="modalDesgloseEvento" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -337,7 +376,7 @@ if (isset($pdo)) {
             </div>
             <form action="" method="POST" id="form_modal_evento">
                 <div class="modal-body">
-                    <input type="hidden" name="accion_evento" value="guardar_cambios">
+                    <input type="hidden" name="accion_evento" id="modal_accion_evento" value="guardar_cambios">
                     <input type="hidden" name="id_evento" id="modal_id_evento">
                     <input type="hidden" name="eliminar_id_evento_servicio" id="modal_eliminar_id_es">
 
@@ -427,9 +466,14 @@ if (isset($pdo)) {
                     </div>
 
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cerrar</button>
-                    <button type="submit" class="btn btn-primary fw-bold"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
+                <div class="modal-footer justify-content-between">
+                    <button type="button" class="btn btn-danger fw-bold" onclick="eliminarEventoDesdeModal()">
+                        <i class="fa-solid fa-trash me-1"></i> Eliminar Evento
+                    </button>
+                    <div>
+                        <button type="button" class="btn btn-secondary fw-bold me-1" data-bs-dismiss="modal">Cerrar</button>
+                        <button type="submit" class="btn btn-primary fw-bold"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -459,7 +503,7 @@ function filtrarTablaEventos() {
 
     filas.forEach(fila => {
         let textoFila = fila.innerText.toLowerCase();
-        if (textoFila.includes(filro)) {
+        if (textoFila.includes(filtro)) {
             fila.style.display = '';
         } else {
             fila.style.display = 'none';
@@ -472,6 +516,7 @@ function abrirModalDesglose(evt) {
     
     document.getElementById('modal_titulo_folio').innerText = "Desglose del Evento #EV-" + String(evt.id_evento).padStart(5, '0');
     document.getElementById('modal_id_evento').value = evt.id_evento;
+    document.getElementById('modal_accion_evento').value = 'guardar_cambios';
     
     let clienteNom = ((evt.nombre_usuario || '') + ' ' + (evt.apellidos_usuario || '')).trim();
     document.getElementById('modal_cliente_nombre').innerText = clienteNom || 'Cliente General';
@@ -519,12 +564,10 @@ function recalcularModal() {
     let paqueteFound = null;
     let extrasList = [];
 
-    // CLASIFICACIÓN EXACTA DE PAQUETE VS EXTRAS
     servicios.forEach(s => {
         let tipoReg = (s.tipo_registro || '').toLowerCase();
         let nom = (s.nombre_servicio || '').toLowerCase();
 
-        // Es paquete si el registro lo marca como paquete o si contiene la palabra paquete
         let esPaqueteStrict = (tipoReg === 'paquete') || nom.includes('paquete');
 
         if (esPaqueteStrict && !paqueteFound) {
@@ -553,7 +596,7 @@ function recalcularModal() {
         paqContainer.innerHTML = '<span class="text-muted fw-bold"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i> Sin Paquete Base Registrado</span>';
     }
 
-    // 2. DIBUJAR SERVICIOS ADICIONALES (CADA UNO CON SU PROPIA CANTIDAD / INVITADOS AJUSTABLE)
+    // 2. DIBUJAR SERVICIOS ADICIONALES
     let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
 
@@ -609,14 +652,12 @@ function recalcularTotalSumado() {
     let numPers = parseInt(document.getElementById('modal_num_personas_slider').value) || 0;
     let totalGen = 0;
 
-    // Suma de Paquete
     let paqBadge = document.querySelector('#modal_paquete_info .badge');
     if (paqBadge) {
         let txt = paqBadge.innerText.replace(/[^0-9.-]+/g, "");
         totalGen += parseFloat(txt) || 0;
     }
 
-    // Suma de Extras
     document.querySelectorAll('.subtotal-fila-val').forEach(td => {
         totalGen += parseFloat(td.getAttribute('data-subtotal')) || 0;
     });
@@ -628,6 +669,25 @@ function eliminarExtraModal(idEventoServicio) {
     if (confirm('¿Deseas remover este servicio del evento?')) {
         document.getElementById('modal_eliminar_id_es').value = idEventoServicio;
         document.getElementById('form_modal_evento').submit();
+    }
+}
+
+function eliminarEventoDesdeModal() {
+    if (!modalEventoActual) return;
+    let folio = "#EV-" + String(modalEventoActual.id_evento).padStart(5, '0');
+    let nom = modalEventoActual.nombre_evento || '';
+    
+    if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nom}")?\n\nEsta acción NO eliminará al cliente registrado.`)) {
+        document.getElementById('modal_accion_evento').value = 'eliminar_evento';
+        document.getElementById('form_modal_evento').submit();
+    }
+}
+
+function confirmarEliminarDirecto(idEvento, nombreEvento) {
+    let folio = "#EV-" + String(idEvento).padStart(5, '0');
+    if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nombreEvento}")?\n\nEl cliente seguirá conservándose en tu catálogo.`)) {
+        document.getElementById('id_evento_eliminar_input').value = idEvento;
+        document.getElementById('form_eliminar_evento_directo').submit();
     }
 }
 </script>
