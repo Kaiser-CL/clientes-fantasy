@@ -57,21 +57,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $num_personas = intval($_POST['num_personas'] ?? 0);
         $id_paquete = $_POST['id_paquete_base'] ?? null;
 
-        // Límite estricto de aforo para Jardín
         if (strtolower($salon_evento) === 'jardin' && $num_personas > 150) {
             $num_personas = 150;
         }
 
-        // Asignar ID de sucursal según selección (1 = Jardín, 2 = Carmelo)
         $id_sucursal = (strtolower($salon_evento) === 'carmelo') ? 2 : 1;
 
-        // 3. INSERTAR EVENTO (Guardando el num_personas)
+        // 3. INSERTAR EVENTO
         try {
             $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, num_personas, estado) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmado')";
             $stmt_event = $pdo->prepare($sql_event);
             $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento, $num_personas]);
         } catch (PDOException $e_col) {
-            // Si la columna num_personas no existiera en la BD, intenta sin ella como fallback
             $sql_event = "INSERT INTO eventos (id_cliente, id_sucursal, nombre_evento, fecha_evento, hora_evento, ubicacion, estado) VALUES (?, ?, ?, ?, ?, ?, 'confirmado')";
             $stmt_event = $pdo->prepare($sql_event);
             $stmt_event->execute([$id_usuario_final, $id_sucursal, $nombre_evento, $fecha_evento, $hora_evento, $salon_evento]);
@@ -79,21 +76,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         
         $id_evento_creado = $pdo->lastInsertId();
 
-        // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS) EN 'evento_servicio'
+        // 4. GUARDAR SERVICIOS (PAQUETE Y EXTRAS)
         if ($id_evento_creado) {
-            try {
-                if ($id_paquete) {
-                    $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
-                    $stmt_es->execute([$id_evento_creado, $id_paquete]);
+            if ($id_paquete) {
+                $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
+                $stmt_es->execute([$id_evento_creado, $id_paquete]);
+            }
 
-                    if (!empty($_POST['extras']) && is_array($_POST['extras'])) {
-                        foreach ($_POST['extras'] as $id_extra) {
-                            $stmt_es->execute([$id_evento_creado, $id_extra]);
-                        }
-                    }
+            if (!empty($_POST['extras']) && is_array($_POST['extras'])) {
+                $stmt_es_extra = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio) VALUES (?, ?)");
+                foreach ($_POST['extras'] as $id_extra) {
+                    $stmt_es_extra->execute([$id_evento_creado, $id_extra]);
                 }
-            } catch (Exception $e_pivot) {
-                // Evento principal se mantiene registrado si varia el esquema
             }
         }
 
@@ -117,7 +111,6 @@ if (isset($pdo)) {
         $clientes_lista = [];
     }
 
-    // Consultar catálogo de Paquetes y Extras con sus atributos de cobro y ubicación
     try {
         $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
             WHERE (LOWER(tipo_registro) = 'paquete' OR LOWER(nombre_servicio) LIKE '%paquete%') 
@@ -158,9 +151,7 @@ if (isset($pdo)) {
     <div class="row">
         <?php 
         $sidebar_path = __DIR__ . '/includes/sidebar.php';
-        if (file_exists($sidebar_path)) { 
-            include $sidebar_path; 
-        }
+        if (file_exists($sidebar_path)) { include $sidebar_path; }
         ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
@@ -184,8 +175,6 @@ if (isset($pdo)) {
                     
                     <!-- COLUMNA IZQUIERDA: CLIENTE Y DETALLES -->
                     <div class="col-lg-7">
-                        
-                        <!-- Información del Cliente -->
                         <div class="card-custom">
                             <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-user me-2"></i>Información del Cliente</h5>
                             
@@ -230,7 +219,6 @@ if (isset($pdo)) {
                             </div>
                         </div>
 
-                        <!-- Detalles del Evento -->
                         <div class="card-custom">
                             <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-calendar-days me-2"></i>Detalles del Evento</h5>
                             <div class="row g-3">
@@ -259,7 +247,6 @@ if (isset($pdo)) {
                                 </div>
                             </div>
                         </div>
-
                     </div>
 
                     <!-- COLUMNA DERECHA: DATOS DEL EVENTO Y PAQUETES -->
@@ -271,23 +258,23 @@ if (isset($pdo)) {
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Seleccionar Paquete Base</label>
                                 <select name="id_paquete_base" id="select_paquete_base" class="form-select" onchange="actualizarCalculosEventos()" required>
-                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="0">-- Seleccionar Paquete --</option>
+                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="1">-- Seleccionar Paquete --</option>
                                     <?php foreach ($paquetes_catalogo as $paq): 
-                                        $es_pp = ($paq['es_por_persona'] == 1 || strtolower($paq['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
+                                        $es_pp = (isset($paq['es_por_persona']) && $paq['es_por_persona'] == 0) ? '0' : '1';
                                         $ubi = strtolower($paq['ubicacion'] ?? 'ambos');
                                     ?>
                                         <option value="<?= $paq['id_servicio'] ?>" 
                                                 data-precio="<?= $paq['precio_servicio'] ?>" 
                                                 data-ubicacion="<?= $ubi ?>" 
                                                 data-por-persona="<?= $es_pp ?>"
-                                                data-tipo-cobro="<?= strtolower($paq['tipo_cobro'] ?? 'fijo') ?>">
-                                            <?= htmlspecialchars($paq['nombre_servicio']) ?> ($<?= number_format((float)$paq['precio_servicio'], 2) ?>)
+                                                data-tipo-cobro="<?= strtolower($paq['tipo_cobro'] ?? 'por_persona') ?>">
+                                            <?= htmlspecialchars($paq['nombre_servicio']) ?> ($<?= number_format((float)$paq['precio_servicio'], 2) ?> / persona)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
 
-                            <!-- SLIDER / CONTROL DESLIZANTE DE NÚMERO DE PERSONAS -->
+                            <!-- SLIDER DE NÚMERO DE PERSONAS -->
                             <div class="mb-3 bg-light p-3 rounded border" id="contenedor_slider_personas">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <label for="num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
@@ -312,7 +299,7 @@ if (isset($pdo)) {
 
                             <hr>
 
-                            <!-- RESUMEN DE PRECIOS DE REFERENCIA -->
+                            <!-- RESUMEN DE PRECIOS -->
                             <div class="d-flex justify-content-between mb-1 fw-semibold">
                                 <span>Subtotal Paquete Base:</span>
                                 <span id="txt_subtotal_paquete">$0.00</span>
@@ -338,7 +325,7 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL AGREGAR SERVICIO EXTRA CON SLIDER DINÁMICO -->
+<!-- MODAL AGREGAR EXTRA -->
 <div class="modal fade" id="modalAgregarExtra" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -367,7 +354,6 @@ if (isset($pdo)) {
                     </select>
                 </div>
 
-                <!-- SLIDER DINÁMICO PARA EXTRA POR PERSONA (EJ: MESA DE DULCES / CARRITO DE SNACKS) -->
                 <div class="mb-3 bg-light p-3 rounded border d-none" id="modal_contenedor_personas_extra">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <label class="form-label fw-bold mb-0">Personas para este Extra:</label>
@@ -408,7 +394,6 @@ function evaluarClienteExistente() {
     }
 }
 
-// Sincronizar slider de personas con la interfaz y recalcular
 function sincronizarPersonas(valor) {
     let salon = document.getElementById('salon_evento').value.toLowerCase();
     let slider = document.getElementById('num_personas_slider');
@@ -426,7 +411,6 @@ function sincronizarPersonas(valor) {
     actualizarCalculosEventos();
 }
 
-// Filtrar Paquetes y Extras según la ubicación elegida (Jardín vs Carmelo)
 function filtrarPorUbicacion() {
     let salon = document.getElementById('salon_evento').value.toLowerCase();
     let esJardin = (salon === 'jardin');
@@ -464,7 +448,6 @@ function abrirModalExtra() {
     document.getElementById('modal_contenedor_personas_extra').classList.add('d-none');
 }
 
-// Muestra u oculta el slider secundario en el modal de extras según si es por persona
 function evaluarTipoExtra(selectElem) {
     let opt = selectElem.options[selectElem.selectedIndex];
     if (!opt.value) return;
@@ -474,7 +457,6 @@ function evaluarTipoExtra(selectElem) {
     
     if (esPorPersona) {
         contenedorSlider.classList.remove('d-none');
-        // Asigna por defecto las personas del paquete base
         let personasPaquete = document.getElementById('num_personas_slider').value;
         document.getElementById('modal_slider_personas_extra').value = personasPaquete;
         document.getElementById('modal_label_personas_extra').innerText = personasPaquete + ' personas';
@@ -483,7 +465,6 @@ function evaluarTipoExtra(selectElem) {
     }
 }
 
-// Agrega un extra a la lista temporal
 function confirmarAgregarExtra() {
     let select = document.getElementById('modal_select_extra');
     let id = select.value;
@@ -549,7 +530,7 @@ function eliminarExtra(index) {
     actualizarCalculosEventos();
 }
 
-// Recalcular Subtotales y Total de Referencia
+// CORRECCIÓN CLAVE EN LA MULTIPLICACIÓN DEL PAQUETE
 function actualizarCalculosEventos() {
     let selectPaq = document.getElementById('select_paquete_base');
     let optPaq = selectPaq.options[selectPaq.selectedIndex];
@@ -558,10 +539,15 @@ function actualizarCalculosEventos() {
     let numPersonas = parseInt(document.getElementById('num_personas_slider').value) || 0;
 
     if (optPaq && optPaq.value) {
-        let precioBase = parseFloat(optPaq.getAttribute('data-precio')) || 0;
+        let precioUnitario = parseFloat(optPaq.getAttribute('data-precio')) || 0;
         let esPP = optPaq.getAttribute('data-por-persona') === '1' || optPaq.getAttribute('data-tipo-cobro') === 'por_persona';
         
-        subtotalPaquete = esPP ? (precioBase * numPersonas) : precioBase;
+        // Multiplica el precio base por el número de invitados si es paquete por persona o si no está marcado como costo fijo
+        if (esPP || (optPaq.getAttribute('data-tipo-cobro') !== 'fijo')) {
+            subtotalPaquete = precioUnitario * numPersonas;
+        } else {
+            subtotalPaquete = precioUnitario;
+        }
     }
 
     let subtotalExtras = extrasAgregados.reduce((sum, item) => sum + item.subtotal, 0);
