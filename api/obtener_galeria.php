@@ -27,18 +27,26 @@ try {
     $stmt->execute([$idEntidad]);
     $archivos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Detectar el protocolo y dominio base de la petición actual
-    $protocolo = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http";
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    // CORRECCIÓN PARA RENDER: Forzar HTTPS y detectar el Host correctamente detrás del Reverse Proxy
+    $protocolo = "https"; 
+    $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'clientes-fantasy.onrender.com';
     $baseUrl = $protocolo . "://" . $host . "/";
 
-    // Formatear la lista adjuntando la URL completa para el frontend y la App
+    // Formatear la lista asegurando la URL en HTTPS
     $dataFormateada = array_map(function($item) use ($baseUrl) {
         $rutaLimpia = ltrim($item['ruta_archivo'], '/');
+        
+        // Si la ruta guardada ya es una URL externa completa (ej. Cloudinary/ImgBB), se respeta
+        if (filter_var($item['ruta_archivo'], FILTER_VALIDATE_URL)) {
+            $urlCompleta = $item['ruta_archivo'];
+        } else {
+            $urlCompleta = $baseUrl . $rutaLimpia;
+        }
+
         return [
             'id_galeria' => $item['id_galeria'],
             'ruta_archivo' => $rutaLimpia,
-            'url_completa' => $baseUrl . $rutaLimpia,
+            'url_completa' => $urlCompleta,
             'tipo_archivo' => $item['tipo_archivo'],
             'fecha_registro' => $item['fecha_registro']
         ];
