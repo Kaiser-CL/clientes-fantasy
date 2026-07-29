@@ -140,7 +140,6 @@ include __DIR__ . '/includes/header.php';
     .thumb-container { position: relative; display: inline-block; margin: 5px; }
     .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
     
-    /* BARRA DE FILTROS COMPACTA */
     .filter-bar { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.75rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
     .filter-bar .form-select { max-width: 180px; }
 </style>
@@ -170,7 +169,7 @@ include __DIR__ . '/includes/header.php';
                 </div>
             <?php endif; ?>
 
-            <!-- BARRA DE FILTROS ESTILIZADA Y COMPACTA -->
+            <!-- BARRA DE FILTROS ESTILIZADA -->
             <div class="filter-bar mb-3">
                 <div class="d-flex flex-wrap align-items-center gap-3">
                     <div class="d-flex align-items-center me-2">
@@ -522,7 +521,7 @@ function cargarGaleriaServicio(idServicio, tipo) {
         tipo = document.getElementById('galeria_tipo_registro').value || 'paquetes';
     }
 
-    fetch(`../api/obtener_galeria.php?tipo=${tipo}&id=${idServicio}`)
+    fetch(`../api/obtener_galeria.php?id=${idServicio}&tipo=${tipo}`)
     .then(r => r.json())
     .then(data => {
         contenedor.innerHTML = '';
@@ -543,9 +542,10 @@ function cargarGaleriaServicio(idServicio, tipo) {
             let div = document.createElement('div');
             div.className = 'thumb-container';
 
+            // OBTENER ID ÚNICO DE LA GALERÍA REAL DE LA BD
             let idGaleria = item.id_galeria || item.id;
             
-            // SANITIZAR Y CONSTRUIR RUTA CORRECTA
+            // SANITIZAR RUTA COMPLETA O RELATIVA
             let ruta = item.url_completa || item.ruta_archivo || '';
             let srcFinal = '';
 
@@ -616,10 +616,16 @@ function subirArchivosGaleria(files) {
 }
 
 function eliminarFotoGaleria(idGaleria) {
+    if (!idGaleria) {
+        alert("Error: ID de la foto no encontrado.");
+        return;
+    }
+
     if (confirm('¿Deseas borrar permanentemente este archivo del servidor?')) {
         let formData = new FormData();
         formData.append('accion', 'eliminar_foto');
         formData.append('id_galeria', idGaleria);
+        formData.append('id', idGaleria);
 
         fetch('../api/subir_galeria.php', {
             method: 'POST',
@@ -632,7 +638,7 @@ function eliminarFotoGaleria(idGaleria) {
                 let tipo = document.getElementById('galeria_tipo_registro').value;
                 cargarGaleriaServicio(idServicio, tipo);
             } else {
-                alert('Error al eliminar: ' + (data.message || 'No se pudo procesar.'));
+                alert('Error al eliminar: ' + (data.message || data.error || 'No se pudo procesar.'));
             }
         })
         .catch(err => {
