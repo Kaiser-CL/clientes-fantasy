@@ -51,21 +51,21 @@ if (empty($correo) || empty($contrasena)) {
 $sql = "
 SELECT
     u.id_usuario,
-    u.nombre_usuario AS nombre,
-    u.apellidos_usuario AS apellidos,
-    u.correo_usuario AS correo,
-    u.telefono_usuario AS telefono,
-    u.contrasena_usuario AS contrasena,
+    u.nombre,
+    u.apellidos,
+    u.correo,
+    u.telefono,
+    u.contrasena,
     u.id_rol,
     r.nombre_rol,
     u.id_empleado_registro,
-    e.telefono_usuario AS telefono_asesor
+    e.telefono AS telefono_asesor
 FROM usuarios u
 INNER JOIN roles r
     ON u.id_rol = r.id_rol
 LEFT JOIN usuarios e
     ON u.id_empleado_registro = e.id_usuario
-WHERE u.correo_usuario = ?
+WHERE u.correo = ?
 ";
 
 try {
