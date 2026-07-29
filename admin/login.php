@@ -101,7 +101,7 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
                         
                         <!-- Logo de la empresa -->
                         <div class="text-center mb-3">
-                            <img src="../imagenes/logo_salon1.png" alt="Logo Salón Fantasy" class="logo-img">
+                            <img src="../Images/logo_salon1.png" alt="Logo Salón Fantasy" class="logo-img">
                         </div>
 
                         <h4 class="card-title text-center fw-bold mb-4">Acceso al Sistema</h4>
