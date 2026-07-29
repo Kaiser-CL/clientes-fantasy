@@ -56,10 +56,16 @@ try {
 
 <div class="container-fluid">
     <div class="row">
-        <?php 
-        $sidebar_path = file_exists($raiz . '/includes/sidebar.php') ? $raiz . '/includes/sidebar.php' : (file_exists(__DIR__ . '/includes/sidebar.php') ? __DIR__ . '/includes/sidebar.php' : null);
-        if ($sidebar_path) { include $sidebar_path; }
-        ?>
+       <?php 
+$raiz = $raiz ?? __DIR__ . '/..'; // Si no está definida, toma la carpeta raíz del proyecto
+$sidebar_path = file_exists($raiz . '/includes/sidebar.php') 
+    ? $raiz . '/includes/sidebar.php' 
+    : (file_exists(__DIR__ . '/includes/sidebar.php') ? __DIR__ . '/includes/sidebar.php' : null);
+
+if ($sidebar_path) { 
+    include $sidebar_path; 
+}
+?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
             <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
