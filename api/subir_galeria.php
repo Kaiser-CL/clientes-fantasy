@@ -6,73 +6,86 @@ require_once dirname(__DIR__) . '/db_config.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-    // 1. ACEPTAR AMBOS NOMBRES ('id_entidad' O 'id')
+    $accion = $_POST['accion'] ?? '';
+
+    // --- ACCIÓN: ELIMINAR FOTO ---
+    if ($accion === 'eliminar_foto') {
+        $idGaleria = intval($_POST['id_galeria'] ?? 0);
+
+        if ($idGaleria <= 0) {
+            echo json_encode(['status' => 'error', 'message' => 'ID de galería no válido.']);
+            exit;
+        }
+
+        try {
+            // 1. Obtener la ruta del archivo para borrarlo del disco
+            $stmt = $pdo->prepare("SELECT ruta_archivo FROM servicio_galeria WHERE id_galeria = ?");
+            $stmt->execute([$idGaleria]);
+            $foto = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($foto) {
+                $rutaFisica = dirname(__DIR__) . '/' . $foto['ruta_archivo'];
+                if (file_exists($rutaFisica)) {
+                    unlink($rutaFisica); // Elimina el archivo físico del servidor
+                }
+
+                // 2. Eliminar el registro de la Base de Datos
+                $stmtDelete = $pdo->prepare("DELETE FROM servicio_galeria WHERE id_galeria = ?");
+                $stmtDelete->execute([$idGaleria]);
+
+                echo json_encode(['status' => 'success', 'message' => 'Archivo eliminado correctamente.']);
+                exit;
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'El archivo no existe en la base de datos.']);
+                exit;
+            }
+        } catch (PDOException $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Error de BD: ' . $e->getMessage()]);
+            exit;
+        }
+    }
+
+    // --- ACCIÓN: SUBIR FOTOS ---
     $tipo = $_POST['tipo'] ?? ''; 
     $idEntidad = intval($_POST['id_entidad'] ?? $_POST['id'] ?? 0); 
 
-    // Validar parámetros
     if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
         echo json_encode(['status' => 'error', 'message' => 'Tipo o ID de entidad no válido.']);
         exit;
     }
 
-    // Ruta física en el servidor: /Images/{tipo}/{id}/
     $directorioDestino = dirname(__DIR__) . "/Images/" . $tipo . "/" . $idEntidad . "/";
 
-    // Crear la subcarpeta automáticamente si no existe
     if (!file_exists($directorioDestino)) {
         mkdir($directorioDestino, 0777, true);
     }
 
-    // 2. DETECTAR 'archivos' (QUE ENVÍA EL JS) O 'imagenes'
-    $archivosInput = null;
-    if (isset($_FILES['archivos'])) {
-        $archivosInput = $_FILES['archivos'];
-    } elseif (isset($_FILES['imagenes'])) {
-        $archivosInput = $_FILES['imagenes'];
-    }
+    $archivosInput = $_FILES['archivos'] ?? $_FILES['imagenes'] ?? null;
 
-    // Validar que se hayan enviado archivos
     if ($archivosInput && !empty($archivosInput['name'][0])) {
-        
         $totalSubidos = 0;
         $extensionesPermitidas = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
         $totalArchivos = is_array($archivosInput['name']) ? count($archivosInput['name']) : 1;
 
         for ($i = 0; $i < $totalArchivos; $i++) {
-            
             $error = is_array($archivosInput['error']) ? $archivosInput['error'][$i] : $archivosInput['error'];
             
             if ($error === UPLOAD_ERR_OK) {
-                
                 $tmpName = is_array($archivosInput['tmp_name']) ? $archivosInput['tmp_name'][$i] : $archivosInput['tmp_name'];
                 $nombreOriginal = is_array($archivosInput['name']) ? $archivosInput['name'][$i] : $archivosInput['name'];
                 $extension = strtolower(pathinfo($nombreOriginal, PATHINFO_EXTENSION));
                 
-                // Verificar extensión
-                if (!in_array($extension, $extensionesPermitidas)) {
-                    continue; 
-                }
+                if (!in_array($extension, $extensionesPermitidas)) continue; 
 
-                // Definir tipo de archivo (video o imagen)
                 $tipoArchivo = in_array($extension, ['mp4', 'mov']) ? 'video' : 'imagen';
-
-                // Generar nombre único
                 $nombreArchivo = uniqid("img_") . "." . $extension;
                 $rutaFisicaFinal = $directorioDestino . $nombreArchivo;
 
-                // Mover archivo temporal al directorio final
                 if (move_uploaded_file($tmpName, $rutaFisicaFinal)) {
-                    
-                    // Ruta relativa que se almacenará en la BD
                     $rutaRelativaBD = "Images/" . $tipo . "/" . $idEntidad . "/" . $nombreArchivo;
-
-                    // Insertar en la tabla 'servicio_galeria'
                     $sql = "INSERT INTO servicio_galeria (id_servicio, ruta_archivo, tipo_archivo) VALUES (?, ?, ?)";
                     $stmt = $pdo->prepare($sql);
                     $stmt->execute([$idEntidad, $rutaRelativaBD, $tipoArchivo]);
-                    
                     $totalSubidos++;
                 }
             }
@@ -85,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'tipo' => $tipo
         ]);
         exit;
-
     } else {
         echo json_encode(['status' => 'error', 'message' => 'No se seleccionó ninguna imagen o archivo.']);
         exit;
