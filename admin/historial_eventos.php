@@ -9,19 +9,39 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once 'auth_check.php';
 require_once __DIR__ . '/../db_config.php';
 
-// --- ENDPOINT AJAX PARA APLICAR CAMBIOS SIN CERRAR EL MODAL ---
+// --- ENDPOINT AJAX PARA APLICAR CAMBIOS EN VIVO ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['es_ajax']) && $_POST['es_ajax'] == '1') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $id_evento = intval($_POST['id_evento']);
         $nuevo_estado = $_POST['estado_evento'] ?? 'confirmado';
         $num_personas = intval($_POST['num_personas_modal'] ?? 50);
+        $id_paquete_nuevo = !empty($_POST['id_paquete_base_modal']) ? intval($_POST['id_paquete_base_modal']) : null;
 
-        // 1. Actualizar evento
+        // 1. Actualizar evento (estado y personas)
         $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
         $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
 
-        // 2. Si se agrega un nuevo servicio extra
+        // 2. Actualizar Paquete Base si cambió
+        if ($id_paquete_nuevo) {
+            // Eliminar paquete anterior registrado en evento_servicio
+            $stmt_del_paq = $pdo->prepare("DELETE es FROM evento_servicio es INNER JOIN servicios s ON es.id_servicio = s.id_servicio WHERE es.id_evento = ? AND LOWER(s.tipo_registro) = 'paquete'");
+            $stmt_del_paq->execute([$id_evento]);
+
+            // Obtener precio del nuevo paquete
+            $stmt_p_info = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ?");
+            $stmt_p_info->execute([$id_paquete_nuevo]);
+            $p_info = $stmt_p_info->fetch(PDO::FETCH_ASSOC);
+
+            if ($p_info) {
+                $precio_paq = floatval($p_info['precio_servicio']);
+                $subtotal_paq = $precio_paq * $num_personas;
+                $stmt_ins_p = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
+                $stmt_ins_p->execute([$id_evento, $id_paquete_nuevo, $num_personas, $subtotal_paq]);
+            }
+        }
+
+        // 3. Agregar nuevo servicio extra
         if (!empty($_POST['nuevo_id_servicio'])) {
             $id_serv = intval($_POST['nuevo_id_servicio']);
             $cant_input = intval($_POST['nueva_cantidad_servicio'] ?? 1);
@@ -39,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['es_ajax']) && $_POST[
             }
         }
 
-        // 3. Actualizar cantidades
+        // 4. Actualizar cantidades de extras existentes
         if (!empty($_POST['actualizar_cantidades']) && is_array($_POST['actualizar_cantidades'])) {
             $stmt_upd_cant = $pdo->prepare("UPDATE evento_servicio SET cantidad_servicio_evento = ?, subtotal_servicio_evento = ? WHERE id_evento_servicio = ?");
             foreach ($_POST['actualizar_cantidades'] as $id_es => $nueva_cant) {
@@ -54,9 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['es_ajax']) && $_POST[
             }
         }
 
-        // 4. Traer lista actualizada de servicios para responder al modal
+        // 5. Retornar servicios actualizados
         $sql_servs = "SELECT es.id_evento_servicio, es.cantidad_servicio_evento, es.subtotal_servicio_evento,
-                             s.id_servicio, s.nombre_servicio, s.precio_servicio, s.tipo_registro
+                             s.id_servicio, s.nombre_servicio, s.precio_servicio, s.tipo_registro, s.tipo_cobro, s.es_por_persona, s.ubicacion
                       FROM evento_servicio es
                       INNER JOIN servicios s ON es.id_servicio = s.id_servicio
                       WHERE es.id_evento = ?";
@@ -108,6 +128,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
             $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
 
+            // Re-vincular paquete si cambió
+            if (!empty($_POST['id_paquete_base_modal'])) {
+                $id_paquete_nuevo = intval($_POST['id_paquete_base_modal']);
+                $stmt_del_paq = $pdo->prepare("DELETE es FROM evento_servicio es INNER JOIN servicios s ON es.id_servicio = s.id_servicio WHERE es.id_evento = ? AND LOWER(s.tipo_registro) = 'paquete'");
+                $stmt_del_paq->execute([$id_evento]);
+
+                $stmt_p_info = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ?");
+                $stmt_p_info->execute([$id_paquete_nuevo]);
+                $p_info = $stmt_p_info->fetch(PDO::FETCH_ASSOC);
+
+                if ($p_info) {
+                    $precio_paq = floatval($p_info['precio_servicio']);
+                    $subtotal_paq = $precio_paq * $num_personas;
+                    $stmt_ins_p = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
+                    $stmt_ins_p->execute([$id_evento, $id_paquete_nuevo, $num_personas, $subtotal_paq]);
+                }
+            }
+
             if (!empty($_POST['nuevo_id_servicio'])) {
                 $id_serv = intval($_POST['nuevo_id_servicio']);
                 $cant_input = intval($_POST['nueva_cantidad_servicio'] ?? 1);
@@ -153,7 +191,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
 // --- CONSULTAR LISTA DE EVENTOS ---
 $eventos_proximos = [];
 $eventos_atrasados = [];
-$servicios_catalogo = [];
+$paquetes_catalogo = [];
+$extras_catalogo = [];
 
 if (isset($pdo)) {
     try {
@@ -187,7 +226,8 @@ if (isset($pdo)) {
                             s.precio_servicio,
                             s.tipo_registro,
                             s.tipo_cobro,
-                            s.es_por_persona
+                            s.es_por_persona,
+                            s.ubicacion
                           FROM evento_servicio es
                           INNER JOIN servicios s ON es.id_servicio = s.id_servicio
                           WHERE es.id_evento = ?";
@@ -207,10 +247,14 @@ if (isset($pdo)) {
     }
 
     try {
-        $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_cobro, es_por_persona, tipo_registro FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
-        $servicios_catalogo = $stmt_cat->fetchAll(PDO::FETCH_ASSOC);
+        $stmt_paq = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, ubicacion FROM servicios WHERE LOWER(tipo_registro) = 'paquete' AND disponible_servicio = 1 ORDER BY nombre_servicio ASC");
+        $paquetes_catalogo = $stmt_paq->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt_ext = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_cobro, es_por_persona FROM servicios WHERE (LOWER(tipo_registro) != 'paquete' OR tipo_registro IS NULL OR tipo_registro = '') AND disponible_servicio = 1 ORDER BY nombre_servicio ASC");
+        $extras_catalogo = $stmt_ext->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        $servicios_catalogo = [];
+        $paquetes_catalogo = [];
+        $extras_catalogo = [];
     }
 }
 ?>
@@ -450,10 +494,25 @@ if (isset($pdo)) {
                         <input type="range" class="form-range" id="modal_num_personas_slider" name="num_personas_modal" min="0" max="300" step="5" value="50" oninput="recalcularModal()">
                     </div>
 
-                    <!-- PAQUETE CONTRATADO -->
-                    <div class="alert alert-primary py-2 mb-3">
-                        <h6 class="fw-bold mb-1"><i class="fa-solid fa-box-open me-2"></i>Paquete Contratado:</h6>
-                        <div id="modal_paquete_info" class="fs-6 fw-semibold">Cargando paquete...</div>
+                    <!-- PAQUETE CONTRATADO (DESPLEGABLE DINÁMICO RESTRINGIDO POR SALÓN) -->
+                    <div class="alert alert-primary py-3 mb-3 border border-primary">
+                        <label class="form-label fw-bold mb-1 text-primary"><i class="fa-solid fa-box-open me-2"></i>Paquete Contratado Seleccionado:</label>
+                        <select name="id_paquete_base_modal" id="modal_select_paquete_base" class="form-select fw-bold border-primary" onchange="recalcularModal()">
+                            <option value="">-- Sin Paquete Base Seleccionado --</option>
+                            <?php foreach ($paquetes_catalogo as $paq): 
+                                $ubi_paq = strtolower($paq['ubicacion'] ?? 'ambos');
+                            ?>
+                                <option value="<?= $paq['id_servicio'] ?>" 
+                                        data-precio="<?= $paq['precio_servicio'] ?>" 
+                                        data-ubicacion="<?= $ubi_paq ?>">
+                                    <?= htmlspecialchars($paq['nombre_servicio']) ?> ($<?= number_format((float)$paq['precio_servicio'], 2) ?> / persona)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top border-primary-subtle">
+                            <span class="small fw-semibold text-secondary">Subtotal del Paquete Base:</span>
+                            <span class="fw-bold text-primary fs-5" id="modal_subtotal_paquete_txt">$0.00</span>
+                        </div>
                     </div>
 
                     <!-- EXTRAS -->
@@ -464,7 +523,7 @@ if (isset($pdo)) {
                                 <tr>
                                     <th>Servicio Extra</th>
                                     <th>Precio Unitario</th>
-                                    <th style="width: 150px;">Cantidad / Personas</th>
+                                    <th style="width: 170px;">Cantidad / Unidades</th>
                                     <th>Subtotal</th>
                                     <th class="text-center">Acción</th>
                                 </tr>
@@ -476,18 +535,20 @@ if (isset($pdo)) {
                     <!-- AGREGAR SERVICIO EXTRA -->
                     <div class="row g-2 align-items-center mb-3 p-3 bg-light rounded border">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold small text-secondary mb-1">Seleccionar Extra:</label>
+                            <label class="form-label fw-bold small text-secondary mb-1">Seleccionar Extra del Catálogo:</label>
                             <select name="nuevo_id_servicio" id="modal_select_nuevo_servicio" class="form-select border-success" onchange="evaluarSelectNuevoExtra()">
-                                <option value="" data-precio="0">-- Agregar Servicio Extra --</option>
-                                <?php foreach ($servicios_catalogo as $serv): ?>
-                                    <option value="<?= $serv['id_servicio'] ?>" data-precio="<?= $serv['precio_servicio'] ?>">
+                                <option value="" data-precio="0" data-tipo-cobro="fijo">-- Agregar Servicio Extra --</option>
+                                <?php foreach ($extras_catalogo as $serv): 
+                                    $es_p = ($serv['tipo_cobro'] === 'por_persona' || intval($serv['es_por_persona']) === 1) ? 'persona' : 'unidad';
+                                ?>
+                                    <option value="<?= $serv['id_servicio'] ?>" data-precio="<?= $serv['precio_servicio'] ?>" data-tipo-cobro="<?= $es_p ?>">
                                         <?= htmlspecialchars($serv['nombre_servicio']) ?> ($<?= number_format((float)$serv['precio_servicio'], 2) ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label fw-bold small text-secondary mb-1">Cantidad / Personas:</label>
+                            <label class="form-label fw-bold small text-secondary mb-1" id="lbl_modal_input_cant">Cantidad / Unidades:</label>
                             <input type="number" name="nueva_cantidad_servicio" id="modal_input_cantidad_extra" class="form-control border-success" value="1" min="1" oninput="calcularTotalEstimadoExtra()">
                         </div>
                         <div class="col-md-3 mt-auto">
@@ -579,19 +640,60 @@ function abrirModalDesglose(evt) {
     document.getElementById('modal_cliente_telefono').innerText = evt.telefono_usuario || 'Sin teléfono';
     document.getElementById('modal_evento_fecha').innerText = (evt.fecha_evento || '') + ' ' + (evt.hora_evento || '');
     
-    let ubiLimpia = (evt.ubicacion || 'Jardín').replace(/^salón\s+/i, '');
-    document.getElementById('modal_evento_salon').innerText = 'Salón ' + ubiLimpia;
+    let ubiRaw = (evt.ubicacion || 'Jardín').toLowerCase();
+    let ubiLimpia = ubiRaw.replace(/^salón\s+/i, '');
+    document.getElementById('modal_evento_salon').innerText = 'Salón ' + ubiLimpia.charAt(0).toUpperCase() + ubiLimpia.slice(1);
     
     document.getElementById('modal_estado_select').value = (evt.estado || 'confirmado').toLowerCase();
 
     let numPers = parseInt(evt.num_personas) || 50;
     document.getElementById('modal_num_personas_slider').value = numPers;
     
+    // Filtrar opciones de paquetes según salón
+    let selectPaqModal = document.getElementById('modal_select_paquete_base');
+    let esJardin = ubiRaw.includes('jardin');
+
+    Array.from(selectPaqModal.options).forEach(opt => {
+        let ubiPaq = opt.getAttribute('data-ubicacion') || 'ambos';
+        if (opt.value === '') return;
+
+        if (ubiPaq === 'ambos' || (esJardin && ubiPaq === 'jardin') || (!esJardin && ubiPaq === 'carmelo')) {
+            opt.style.display = 'block';
+            opt.disabled = false;
+        } else {
+            opt.style.display = 'none';
+            opt.disabled = true;
+        }
+    });
+
+    // Seleccionar el paquete real registrado
+    let paqueteRegistrado = (evt.servicios_asociados || []).find(s => (s.tipo_registro || '').toLowerCase() === 'paquete');
+    if (paqueteRegistrado) {
+        selectPaqModal.value = paqueteRegistrado.id_servicio;
+    } else {
+        selectPaqModal.value = '';
+    }
+
     recalcularModal();
     bootstrapModalHistorial.show();
 }
 
 function evaluarSelectNuevoExtra() {
+    let select = document.getElementById('modal_select_nuevo_servicio');
+    let opt = select.options[select.selectedIndex];
+    let lblInput = document.getElementById('lbl_modal_input_cant');
+
+    if (opt && opt.value) {
+        let tipoCobro = opt.getAttribute('data-tipo-cobro');
+        if (tipoCobro === 'persona') {
+            lblInput.innerText = 'Número de Personas:';
+        } else {
+            lblInput.innerText = 'Cantidad / Unidades:';
+        }
+    } else {
+        lblInput.innerText = 'Cantidad / Unidades:';
+    }
+
     calcularTotalEstimadoExtra();
 }
 
@@ -616,46 +718,25 @@ function recalcularModal() {
 
     if (!modalEventoActual) return;
 
-    let servicios = modalEventoActual.servicios_asociados || [];
-    let paqueteFound = null;
-    let extrasList = [];
+    // 1. DIBUJAR Y RECALCULAR PAQUETE BASE
+    let selectPaq = document.getElementById('modal_select_paquete_base');
+    let optPaq = selectPaq.options[selectPaq.selectedIndex];
+    let subtotalPaquete = 0;
 
-    // CLASIFICACIÓN FLEXIBLE PARA EVENTOS VIEJOS Y NUEVOS
-    servicios.forEach((s, index) => {
-        let tipoReg = (s.tipo_registro || '').toLowerCase();
-        let nom = (s.nombre_servicio || '').toLowerCase();
-
-        let esPaqueteStrict = (tipoReg === 'paquete') || nom.includes('paquete') || nom.includes('básico') || nom.includes('infantil') || nom.includes('social');
-
-        if ((esPaqueteStrict || index === 0) && !paqueteFound) {
-            paqueteFound = s;
-        } else {
-            extrasList.push(s);
-        }
-    });
-
-    let totalCalculado = 0;
-
-    // 1. DIBUJAR PAQUETE BASE
-    let paqContainer = document.getElementById('modal_paquete_info');
-    if (paqueteFound) {
-        let precioU = parseFloat(paqueteFound.precio_servicio) || 0;
-        let subtotalPaq = precioU * numPers;
-        totalCalculado += subtotalPaq;
-
-        paqContainer.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <span><strong>${paqueteFound.nombre_servicio}</strong> ($${precioU.toFixed(2)} / persona)</span>
-                <span class="badge bg-primary fs-6">$${subtotalPaq.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
-            </div>
-        `;
-    } else {
-        paqContainer.innerHTML = '<span class="text-muted fw-bold"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i> Sin Paquete Base Registrado</span>';
+    if (optPaq && optPaq.value) {
+        let precioPaqUnitario = parseFloat(optPaq.getAttribute('data-precio')) || 0;
+        subtotalPaquete = precioPaqUnitario * numPers;
     }
 
-    // 2. DIBUJAR SERVICIOS ADICIONALES
+    document.getElementById('modal_subtotal_paquete_txt').innerText = '$' + subtotalPaquete.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    // 2. DIBUJAR Y RECALCULAR SERVICIOS EXTRAS (EXCLUYENDO REGISTROS TIPO PAQUETE)
+    let servicios = modalEventoActual.servicios_asociados || [];
+    let extrasList = servicios.filter(s => (s.tipo_registro || '').toLowerCase() !== 'paquete');
+
     let tbody = document.getElementById('modal_tabla_extras_body');
     tbody.innerHTML = '';
+    let totalExtras = 0;
 
     if (extrasList.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted fw-bold">No hay servicios adicionales agregados.</td></tr>';
@@ -665,7 +746,7 @@ function recalcularModal() {
             let cant = parseInt(ext.cantidad_servicio_evento) || 1;
             
             let subtotalExtra = precioU * cant;
-            totalCalculado += subtotalExtra;
+            totalExtras += subtotalExtra;
 
             let tr = document.createElement('tr');
             tr.innerHTML = `
@@ -690,7 +771,8 @@ function recalcularModal() {
         });
     }
 
-    document.getElementById('modal_total_recalculado').innerText = '$' + totalCalculado.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    let totalGeneral = subtotalPaquete + totalExtras;
+    document.getElementById('modal_total_recalculado').innerText = '$' + totalGeneral.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 function actualizarSubtotalFila(inputElem, precioUnitario) {
@@ -707,22 +789,25 @@ function actualizarSubtotalFila(inputElem, precioUnitario) {
 
 function recalcularTotalSumado() {
     let numPers = parseInt(document.getElementById('modal_num_personas_slider').value) || 0;
-    let totalGen = 0;
-
-    let paqBadge = document.querySelector('#modal_paquete_info .badge');
-    if (paqBadge) {
-        let txt = paqBadge.innerText.replace(/[^0-9.-]+/g, "");
-        totalGen += parseFloat(txt) || 0;
+    
+    // Subtotal paquete
+    let selectPaq = document.getElementById('modal_select_paquete_base');
+    let optPaq = selectPaq.options[selectPaq.selectedIndex];
+    let subtotalPaquete = 0;
+    if (optPaq && optPaq.value) {
+        subtotalPaquete = (parseFloat(optPaq.getAttribute('data-precio')) || 0) * numPers;
     }
 
+    // Subtotal extras
+    let subtotalExtras = 0;
     document.querySelectorAll('.subtotal-fila-val').forEach(td => {
-        totalGen += parseFloat(td.getAttribute('data-subtotal')) || 0;
+        subtotalExtras += parseFloat(td.getAttribute('data-subtotal')) || 0;
     });
 
+    let totalGen = subtotalPaquete + subtotalExtras;
     document.getElementById('modal_total_recalculado').innerText = '$' + totalGen.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
-// FUNCIONALIDAD AJAX PARA "APLICAR CAMBIOS" SIN CERRAR MODAL
 function aplicarCambiosAjax() {
     let form = document.getElementById('form_modal_evento');
     let formData = new FormData(form);
@@ -743,7 +828,6 @@ function aplicarCambiosAjax() {
             alertBox.className = 'alert alert-success py-2 fw-bold small';
             alertBox.innerText = '✓ Cambios guardados correctamente.';
             
-            // Actualizar arreglo local para refrescar modal
             if (data.servicios) {
                 modalEventoActual.servicios_asociados = data.servicios;
             }
@@ -774,7 +858,7 @@ function eliminarExtraModal(idEventoServicio) {
 
 function eliminarEventoDesdeModal() {
     if (!modalEventoActual) return;
-    let folio = "#EV-" . String(modalEventoActual.id_evento).padStart(5, '0');
+    let folio = "#EV-" + String(modalEventoActual.id_evento).padStart(5, '0');
     let nom = modalEventoActual.nombre_evento || '';
     
     if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nom}")?\n\nEsta acción NO eliminará al cliente registrado.`)) {
@@ -784,7 +868,7 @@ function eliminarEventoDesdeModal() {
 }
 
 function confirmarEliminarDirecto(idEvento, nombreEvento) {
-    let folio = "#EV-" . String(idEvento).padStart(5, '0');
+    let folio = "#EV-" + String(idEvento).padStart(5, '0');
     if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nombreEvento}")?\n\nEl cliente seguirá conservándose en tu catálogo.`)) {
         document.getElementById('id_evento_eliminar_input').value = idEvento;
         document.getElementById('form_eliminar_evento_directo').submit();
