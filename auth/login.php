@@ -99,6 +99,7 @@ try {
 } catch (PDOException $e) {
     echo json_encode([
         "success" => false,
-        "mensaje" => "Error en la consulta de inicio de sesión."
+        "mensaje" => "Error en la consulta de inicio de sesión.",
+        "debug"   => $e->getMessage()
     ]);
 }
