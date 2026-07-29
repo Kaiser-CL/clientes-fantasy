@@ -41,6 +41,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     $stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, email, telefono_usuario, contrasena_usuario, id_rol, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, ?)");
                     $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default, $id_empleado_logueado]);   
                     $id_usuario_final = $pdo->lastInsertId();
+
+                    if (function_exists('registrarBitacora')) {
+                        registrarBitacora($pdo, 'AGREGAR', 'usuarios', $id_usuario_final, null, [
+                            'nombre' => $nombre_cliente . ' ' . $apellidos_cliente,
+                            'email' => $correo_cliente,
+                            'origen' => 'Generar Evento'
+                        ]);
+                    }
                 }
             }
         }
@@ -82,7 +90,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $stmt_es = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
             $stmt_info = $pdo->prepare("SELECT precio_servicio, tipo_cobro, es_por_persona FROM servicios WHERE id_servicio = ?");
 
-            // Paquete Base
             if ($id_paquete) {
                 $stmt_info->execute([$id_paquete]);
                 $paq_info = $stmt_info->fetch(PDO::FETCH_ASSOC);
@@ -94,7 +101,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 }
             }
 
-            // Extras con cálculo según modalidad
             if (!empty($_POST['extras_id']) && is_array($_POST['extras_id'])) {
                 foreach ($_POST['extras_id'] as $idx => $id_extra) {
                     $stmt_info->execute([$id_extra]);
@@ -104,12 +110,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                         $precio_ext = floatval($ext_info['precio_servicio']);
                         $es_persona = ($ext_info['tipo_cobro'] === 'por_persona' || intval($ext_info['es_por_persona']) === 1);
                         $cant_ext = intval($_POST['extras_cant'][$idx] ?? 1);
-
                         $subtotal_ext = $es_persona ? ($precio_ext * $cant_ext) : $precio_ext;
-
                         $stmt_es->execute([$id_evento_creado, $id_extra, $cant_ext, $subtotal_ext]);
                     }
                 }
+            }
+
+            // REGISTRO BITÁCORA DEL EVENTO
+            if (function_exists('registrarBitacora')) {
+                registrarBitacora($pdo, 'AGREGAR', 'eventos', $id_evento_creado, null, [
+                    'nombre_evento' => $nombre_evento,
+                    'fecha' => $fecha_evento,
+                    'personas' => $num_personas,
+                    'salon' => $salon_evento
+                ]);
             }
         }
 
@@ -142,33 +156,16 @@ if (isset($pdo)) {
         $error_db = "Error al consultar catálogo: " . $e->getMessage();
     }
 }
+
+include __DIR__ . '/includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generar Evento | Admin Fantasy</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <style>
-        body { min-height: 100vh; background-color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
-        .card-custom { background: #ffffff; border-radius: 12px; border: 2px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .form-label { font-size: 0.9rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem; }
-        .form-control, .form-select { border-radius: 8px; border: 1.5px solid #94a3b8; padding: 0.6rem 0.85rem; color: #0f172a; font-weight: 600; }
-    </style>
-</head>
-<body>
 
 <div class="container-fluid">
     <div class="row">
-        <?php 
-        $sidebar_path = __DIR__ . '/includes/sidebar.php';
-        if (file_exists($sidebar_path)) { include $sidebar_path; }
-        ?>
+        <?php include __DIR__ . '/includes/sidebar.php'; ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
-            <h2 class="h3 mb-3 fw-bold text-dark"><i class="fa-solid fa-calendar-plus text-primary me-2"></i>Generar Nuevo Evento</h2>
+            <h2 class="h3 mb-3 fw-bold" style="color: var(--color-morado);"><i class="fa-solid fa-calendar-plus me-2" style="color: var(--color-rosa);"></i>Generar Nuevo Evento</h2>
 
             <?php if ($mensaje): ?>
                 <div class="alert alert-success alert-dismissible fade show fw-bold">
@@ -188,11 +185,11 @@ if (isset($pdo)) {
                     
                     <!-- COLUMNA IZQUIERDA -->
                     <div class="col-lg-7">
-                        <div class="card-custom">
-                            <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-user me-2"></i>Información del Cliente</h5>
+                        <div class="card shadow-sm border-0 p-4 rounded-3 bg-white mb-4">
+                            <h5 class="fw-bold mb-3" style="color: var(--color-morado);"><i class="fa-solid fa-user me-2" style="color: var(--color-rosa);"></i>Información del Cliente</h5>
                             
                             <div class="mb-3">
-                                <label class="form-label text-success"><i class="fa-solid fa-user-check me-1"></i> Seleccionar Cliente Existente (Opcional):</label>
+                                <label class="form-label text-success fw-bold"><i class="fa-solid fa-user-check me-1"></i> Seleccionar Cliente Existente (Opcional):</label>
                                 <select name="id_cliente_existente" id="id_cliente_existente" class="form-select border-success" onchange="evaluarClienteExistente()">
                                     <option value="">-- Crear Nuevo Cliente Abajo --</option>
                                     <?php foreach ($clientes_lista as $cli): ?>
@@ -209,19 +206,19 @@ if (isset($pdo)) {
                                 <h6 class="fw-bold text-secondary mb-2"><i class="fa-solid fa-user-plus me-1"></i> O registrar datos de un Cliente Nuevo:</h6>
                                 <div class="row g-3">
                                     <div class="col-md-6">
-                                        <label class="form-label">Nombre(s)</label>
+                                        <label class="form-label fw-bold">Nombre(s)</label>
                                         <input type="text" id="nombre_cliente" name="nombre_cliente" class="form-control" placeholder="Nombre(s)">
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Apellidos</label>
+                                        <label class="form-label fw-bold">Apellidos</label>
                                         <input type="text" id="apellidos_cliente" name="apellidos_cliente" class="form-control" placeholder="Apellidos">
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Correo Electrónico</label>
+                                        <label class="form-label fw-bold">Correo Electrónico</label>
                                         <input type="email" id="correo_cliente" name="correo_cliente" class="form-control" placeholder="correo@ejemplo.com">
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label">Teléfono (10 dígitos)</label>
+                                        <label class="form-label fw-bold">Teléfono (10 dígitos)</label>
                                         <input type="tel" id="telefono_cliente" name="telefono_cliente" class="form-control" placeholder="Teléfono">
                                     </div>
                                 </div>
@@ -231,30 +228,30 @@ if (isset($pdo)) {
                             </div>
                         </div>
 
-                        <div class="card-custom">
-                            <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-calendar-days me-2"></i>Detalles del Evento</h5>
+                        <div class="card shadow-sm border-0 p-4 rounded-3 bg-white">
+                            <h5 class="fw-bold mb-3" style="color: var(--color-morado);"><i class="fa-solid fa-calendar-days me-2" style="color: var(--color-rosa);"></i>Detalles del Evento</h5>
                             <div class="row g-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">Seleccionar Fecha</label>
+                                    <label class="form-label fw-bold">Seleccionar Fecha</label>
                                     <input type="date" name="fecha_evento" class="form-control" required>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Seleccionar Hora</label>
+                                    <label class="form-label fw-bold">Seleccionar Hora</label>
                                     <input type="time" name="hora_evento" class="form-control" required>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Salón / Ubicación</label>
+                                    <label class="form-label fw-bold">Salón / Ubicación</label>
                                     <select name="salon_evento" id="salon_evento" class="form-select" onchange="filtrarPorUbicacion()" required>
                                         <option value="jardin">Salón Jardín</option>
                                         <option value="carmelo">Salón Carmelo</option>
                                     </select>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Nombre del Evento</label>
+                                    <label class="form-label fw-bold">Nombre del Evento</label>
                                     <input type="text" name="nombre_evento" class="form-control" placeholder="Ej. Cumpleaños de Sofía" required>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label">Comentarios / Observaciones (Opcional):</label>
+                                    <label class="form-label fw-bold">Comentarios / Observaciones (Opcional):</label>
                                     <textarea name="comentarios_evento" class="form-control" rows="3" placeholder="Anotaciones administrativas, acuerdos especiales, etc..."></textarea>
                                 </div>
                             </div>
@@ -263,8 +260,8 @@ if (isset($pdo)) {
 
                     <!-- COLUMNA DERECHA -->
                     <div class="col-lg-5">
-                        <div class="card-custom">
-                            <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-receipt me-2"></i>Datos del Evento</h5>
+                        <div class="card shadow-sm border-0 p-4 rounded-3 bg-white">
+                            <h5 class="fw-bold mb-3" style="color: var(--color-morado);"><i class="fa-solid fa-receipt me-2" style="color: var(--color-rosa);"></i>Cotización Inicial</h5>
 
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Seleccionar Paquete Base</label>
@@ -285,7 +282,7 @@ if (isset($pdo)) {
                             <div class="mb-3 bg-light p-3 rounded border" id="contenedor_slider_personas">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <label for="num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
-                                    <span class="badge bg-primary fs-6 fw-bold" id="label_num_personas">0 personas</span>
+                                    <span class="badge rounded-pill bg-primary fs-6 fw-bold" id="label_num_personas">0 personas</span>
                                 </div>
                                 <input type="range" class="form-range" id="num_personas_slider" name="num_personas" min="0" max="150" step="5" value="0" oninput="sincronizarPersonas(this.value)">
                                 <small id="msg_aforo_jardin" class="text-danger fw-bold d-none mt-1">⚠️ Aforo máximo para Jardín: 150 personas.</small>
@@ -293,7 +290,7 @@ if (isset($pdo)) {
 
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <label class="form-label fw-bold mb-0">Servicios Extra</label>
-                                <button type="button" class="btn btn-sm btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalAgregarExtra" onclick="abrirModalExtra()">
+                                <button type="button" class="btn btn-sm btn-secondary fw-bold" data-bs-toggle="modal" data-bs-target="#modalAgregarExtra" onclick="abrirModalExtra()">
                                     <i class="fa-solid fa-plus me-1"></i> Agregar Extra
                                 </button>
                             </div>
@@ -313,7 +310,7 @@ if (isset($pdo)) {
                                 <span>Subtotal Servicios Extra:</span>
                                 <span id="txt_subtotal_extras">$0.00</span>
                             </div>
-                            <div class="d-flex justify-content-between align-items-center text-primary border-top pt-2 mt-2">
+                            <div class="d-flex justify-content-between align-items-center border-top pt-2 mt-2" style="color: var(--color-morado);">
                                 <h5 class="fw-bold mb-0">TOTAL DE REFERENCIA:</h5>
                                 <h3 class="fw-bold mb-0" id="txt_total_evento">$0.00</h3>
                             </div>
@@ -330,12 +327,12 @@ if (isset($pdo)) {
     </div>
 </div>
 
-<!-- MODAL AGREGAR EXTRA (SLIDER SOLO SI ES POR PERSONA) -->
+<!-- MODAL AGREGAR EXTRA -->
 <div class="modal fade" id="modalAgregarExtra" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold"><i class="fa-solid fa-puzzle-piece me-2"></i>Agregar Servicio Extra</h5>
+                <h5 class="modal-title fw-bold"><i class="fa-solid fa-puzzle-piece me-2" style="color: var(--color-rosa);"></i>Agregar Servicio Extra</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -356,7 +353,6 @@ if (isset($pdo)) {
                     </select>
                 </div>
 
-                <!-- SLIDER PARA EXTRAS POR PERSONA -->
                 <div id="wrapper_slider_extra_generar" class="mb-3 d-none bg-light p-3 rounded border">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <label class="form-label fw-bold mb-0">Número de Personas:</label>
@@ -365,11 +361,11 @@ if (isset($pdo)) {
                     <input type="range" class="form-range" id="slider_extra_personas_generar" min="5" max="300" step="5" value="50" oninput="sincronizarSliderExtraGenerar()">
                 </div>
 
-                <div class="text-primary fw-bold fs-6 mt-2" id="lbl_subtotal_extra_preview"></div>
+                <div class="fw-bold fs-6 mt-2" style="color: var(--color-morado);" id="lbl_subtotal_extra_preview"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary fw-bold" onclick="confirmarAgregarExtra()">Agregar</button>
+                <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="confirmarAgregarExtra()">Agregar</button>
             </div>
         </div>
     </div>
@@ -543,7 +539,7 @@ function renderizarExtrasUI() {
                 <input type="hidden" name="extras_cant[]" value="${item.cantidad}">
             </div>
             <div class="d-flex align-items-center">
-                <span class="fw-bold me-2 text-primary">$${item.subtotal.toFixed(2)}</span>
+                <span class="fw-bold me-2" style="color: var(--color-morado);">$${item.subtotal.toFixed(2)}</span>
                 <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="eliminarExtra(${index})">&times;</button>
             </div>
         `;
