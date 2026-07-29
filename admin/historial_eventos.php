@@ -7,7 +7,6 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require_once 'auth_check.php';
-
 require_once __DIR__ . '/../db_config.php';
 
 $mensaje = '';
@@ -22,17 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             $id_servicio = $_POST['id_servicio_extra'] ?? null;
 
             if ($id_evento && $id_servicio) {
-                // Obtener el precio del servicio del catálogo para llenar subtotales obligatorios
                 $stmt_precio = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ? LIMIT 1");
                 $stmt_precio->execute([$id_servicio]);
                 $precio_unitario = (float)($stmt_precio->fetchColumn() ?: 0.00);
 
-                // Intentar insertar con el campo subtotal obligatorio
                 try {
                     $stmt_add = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, subtotal_servicio_evento) VALUES (?, ?, ?)");
                     $stmt_add->execute([$id_evento, $id_servicio, $precio_unitario]);
                 } catch (PDOException $e_sub) {
-                    // Si la columna tiene un nombre ligeramente distinto o no existe:
                     try {
                         $stmt_add = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad, subtotal) VALUES (?, ?, 1, ?)");
                         $stmt_add->execute([$id_evento, $id_servicio, $precio_unitario]);
@@ -84,6 +80,7 @@ if (isset($pdo)) {
                     e.fecha_evento,
                     e.hora_evento,
                     e.ubicacion,
+                    e.num_personas,
                     e.estado,
                     u.nombre_usuario,
                     u.apellidos_usuario,
@@ -104,7 +101,9 @@ if (isset($pdo)) {
                             s.id_servicio,
                             s.nombre_servicio,
                             s.precio_servicio,
-                            s.tipo_registro
+                            s.tipo_registro,
+                            s.es_por_persona,
+                            s.tipo_cobro
                           FROM evento_servicio es
                           INNER JOIN servicios s ON es.id_servicio = s.id_servicio
                           WHERE es.id_evento = ?";
@@ -119,9 +118,9 @@ if (isset($pdo)) {
         $error_db = "Error al obtener eventos: " . $e->getMessage();
     }
 
-    // Consultar catálogo completo de servicios para llenar el select del modal
+    // Consultar catálogo completo de servicios para el select de extras
     try {
-        $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_registro FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
+        $stmt_cat = $pdo->query("SELECT id_servicio, nombre_servicio, precio_servicio, tipo_registro, es_por_persona, tipo_cobro FROM servicios WHERE disponible_servicio = 1 ORDER BY nombre_servicio ASC");
         $servicios_catalogo = $stmt_cat->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         $servicios_catalogo = [];
@@ -148,9 +147,9 @@ if (isset($pdo)) {
     <div class="row">
         <?php 
         $sidebar_path = __DIR__ . '/includes/sidebar.php';
-if (file_exists($sidebar_path)) { 
-    include $sidebar_path; 
-}
+        if (file_exists($sidebar_path)) { 
+            include $sidebar_path; 
+        }
         ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
@@ -180,7 +179,7 @@ if (file_exists($sidebar_path)) {
                                 <th>Folio / Evento</th>
                                 <th>Cliente</th>
                                 <th>Fecha y Hora</th>
-                                <th>Salón / Ubicación</th>
+                                <th>Salón</th>
                                 <th>Estado</th>
                                 <th class="text-center">Acción</th>
                             </tr>
@@ -242,7 +241,7 @@ if (file_exists($sidebar_path)) {
             </div>
             <div class="modal-body">
                 
-                <!-- DATOS DEL CLIENTE Y UBICACIÓN -->
+                <!-- DATOS DEL CLIENTE Y SALÓN -->
                 <div class="row mb-3 bg-light p-3 rounded border">
                     <div class="col-md-6 mb-2">
                         <strong>Cliente:</strong> <span id="m-cliente-nombre">---</span>
@@ -254,29 +253,35 @@ if (file_exists($sidebar_path)) {
                         <strong>Teléfono:</strong> <span id="m-cliente-tel">---</span>
                     </div>
                     <div class="col-md-6 text-md-end">
-                        <strong>Categoría/Salón:</strong> <span id="m-salon">---</span>
+                        <strong>Salón:</strong> <span id="m-salon">---</span>
                     </div>
                 </div>
 
-                <h6 class="fw-bold text-primary mb-2"><i class="fa-solid fa-list-check me-1"></i> Servicios Adicionales Contratados</h6>
+                <!-- DETALLES DE CONTRATACIÓN (PAQUETE Y ASISTENTES) -->
+                <div class="alert alert-primary mb-3 py-2 px-3">
+                    <div class="fw-bold fs-6 mb-1"><i class="fa-solid fa-box-open me-2"></i> Paquete Contratado:</div>
+                    <div id="m-paquete-info" class="fs-6 text-dark fw-semibold">Cargando datos...</div>
+                </div>
+
+                <h6 class="fw-bold text-primary mb-2"><i class="fa-solid fa-puzzle-piece me-1"></i> Servicios Adicionales Contratados</h6>
                 
-                <!-- TABLA DE SERVICIOS ASIGNADOS -->
+                <!-- TABLA DE SERVICIOS ADICIONALES -->
                 <div class="table-responsive mb-3">
                     <table class="table table-bordered align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Servicio</th>
-                                <th>Precio</th>
+                                <th>Servicio Extra</th>
+                                <th>Precio Unitario</th>
                                 <th style="width: 100px;" class="text-center">Acción</th>
                             </tr>
                         </thead>
                         <tbody id="m-tabla-servicios-body">
-                            <!-- Se renderiza por JS -->
+                            <!-- Renderizado con JS -->
                         </tbody>
                     </table>
                 </div>
 
-                <!-- FORMULARIO AGREGAR SERVICIO EXTRA AL EVENTO -->
+                <!-- FORMULARIO AGREGAR SERVICIO EXTRA -->
                 <form action="" method="POST" class="row g-2 align-items-center mb-4">
                     <input type="hidden" name="accion" value="agregar_servicio">
                     <input type="hidden" name="id_evento" id="m-input-id-evento-add">
@@ -284,9 +289,11 @@ if (file_exists($sidebar_path)) {
                     <div class="col-md-8">
                         <select name="id_servicio_extra" class="form-select" required>
                             <option value="">-- Agregar Servicio Adicional --</option>
-                            <?php foreach ($servicios_catalogo as $sc): ?>
+                            <?php foreach ($servicios_catalogo as $sc): 
+                                $es_pp = ($sc['es_por_persona'] == 1 || strtolower($sc['tipo_cobro'] ?? '') === 'por_persona') ? ' / persona' : '';
+                            ?>
                                 <option value="<?= $sc['id_servicio'] ?>">
-                                    <?= htmlspecialchars($sc['nombre_servicio']) ?> ($<?= number_format((float)$sc['precio_servicio'], 2) ?>)
+                                    <?= htmlspecialchars($sc['nombre_servicio']) ?> ($<?= number_format((float)$sc['precio_servicio'], 2) ?><?= $es_pp ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -345,27 +352,50 @@ function abrirModalDesglose(evt) {
     document.getElementById('m-select-estado').value = evt.estado || 'confirmado';
 
     let tbody = document.getElementById('m-tabla-servicios-body');
+    let paqueteBox = document.getElementById('m-paquete-info');
     tbody.innerHTML = '';
 
-    if (!evt.servicios_asociados || evt.servicios_asociados.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
-    } else {
+    let paqueteNombre = "Sin Paquete Registrado";
+    let numPersonas = evt.num_personas || 0;
+    let tieneExtras = false;
+
+    if (evt.servicios_asociados && evt.servicios_asociados.length > 0) {
         evt.servicios_asociados.forEach(s => {
-            let precio = parseFloat(s.precio_servicio) || 0;
-            let tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td class="fw-bold text-dark">${s.nombre_servicio}</td>
-                <td>$${precio.toFixed(2)}</td>
-                <td class="text-center">
-                    <form action="" method="POST" onsubmit="return confirm('¿Seguro que deseas eliminar este servicio del evento?');">
-                        <input type="hidden" name="accion" value="eliminar_servicio">
-                        <input type="hidden" name="id_evento_servicio" value="${s.id_evento_servicio}">
-                        <button type="submit" class="btn btn-danger btn-sm py-0 px-2 fw-bold">&times;</button>
-                    </form>
-                </td>
-            `;
-            tbody.appendChild(tr);
+            let tipoReg = (s.tipo_registro || '').toLowerCase();
+            let nombreServ = (s.nombre_servicio || '').toLowerCase();
+
+            // Identificar Paquete Base
+            if (tipoReg === 'paquete' || nombreServ.includes('paquete')) {
+                paqueteNombre = s.nombre_servicio;
+            } else {
+                // Es un Servicio Adicional
+                tieneExtras = true;
+                let precio = parseFloat(s.precio_servicio) || 0;
+                let esPP = (s.es_por_persona == 1 || (s.tipo_cobro || '').toLowerCase() === 'por_persona') ? ' / persona' : '';
+                
+                let tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="fw-bold text-dark">${s.nombre_servicio}</td>
+                    <td>$${precio.toFixed(2)}${esPP}</td>
+                    <td class="text-center">
+                        <form action="" method="POST" onsubmit="return confirm('¿Seguro que deseas eliminar este servicio extra del evento?');">
+                            <input type="hidden" name="accion" value="eliminar_servicio">
+                            <input type="hidden" name="id_evento_servicio" value="${s.id_evento_servicio}">
+                            <button type="submit" class="btn btn-danger btn-sm py-0 px-2 fw-bold">&times;</button>
+                        </form>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
         });
+    }
+
+    // Renderizar caja del paquete
+    let personasTxt = numPersonas > 0 ? ` para <strong>${numPersonas} personas</strong>` : '';
+    paqueteBox.innerHTML = `Compró el paquete <strong>${paqueteNombre}</strong>${personasTxt}.`;
+
+    if (!tieneExtras) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted fw-bold">No hay servicios adicionales agregados a este evento.</td></tr>';
     }
 
     modalDesgloseObj.show();
