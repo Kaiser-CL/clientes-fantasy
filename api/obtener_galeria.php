@@ -4,7 +4,6 @@
 header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json; charset=UTF-8');
 
-// Ajusta la ruta a tu conexión de BD según tu estructura
 require_once dirname(__DIR__) . '/db_config.php';
 
 $tipo = $_GET['tipo'] ?? ''; // 'paquetes' o 'extras'
@@ -19,7 +18,6 @@ if (!in_array($tipo, ['paquetes', 'extras']) || $idEntidad <= 0) {
 }
 
 try {
-    // CORRECCIÓN: Se consulta 'servicio_galeria' usando 'id_servicio' y sus nombres reales de columna
     $sql = "SELECT id_galeria, ruta_archivo, tipo_archivo, fecha_registro 
             FROM servicio_galeria 
             WHERE id_servicio = ? 
@@ -29,12 +27,29 @@ try {
     $stmt->execute([$idEntidad]);
     $archivos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Detectar el protocolo y dominio base de la petición actual
+    $protocolo = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http";
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $baseUrl = $protocolo . "://" . $host . "/";
+
+    // Formatear la lista adjuntando la URL completa para el frontend y la App
+    $dataFormateada = array_map(function($item) use ($baseUrl) {
+        $rutaLimpia = ltrim($item['ruta_archivo'], '/');
+        return [
+            'id_galeria' => $item['id_galeria'],
+            'ruta_archivo' => $rutaLimpia,
+            'url_completa' => $baseUrl . $rutaLimpia,
+            'tipo_archivo' => $item['tipo_archivo'],
+            'fecha_registro' => $item['fecha_registro']
+        ];
+    }, $archivos);
+
     echo json_encode([
         'status' => 'success',
         'tipo' => $tipo,
         'id_entidad' => $idEntidad,
-        'total' => count($archivos),
-        'data' => $archivos
+        'total' => count($dataFormateada),
+        'data' => $dataFormateada
     ], JSON_UNESCAPED_SLASHES);
 
 } catch (PDOException $e) {
