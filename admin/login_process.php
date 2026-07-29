@@ -23,10 +23,12 @@ if (empty($input) || empty($pass)) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE correo_usuario = ? OR nombre_usuario = ? LIMIT 1");
+    // 1. Buscamos por la columna 'email' o 'nombre_usuario'
+    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE email = ? OR nombre_usuario = ? LIMIT 1");
     $stmt->execute([$input, $input]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    // 2. Validar que exista, que esté activo (estado = 1) y que NO sea cliente (id_rol !== 2)
     if (!$user || (int)$user['estado_usuario'] !== 1 || (int)$user['id_rol'] === 2) {
         header("Location: login.php?error=credenciales_invalidas");
         exit();
@@ -39,14 +41,14 @@ try {
         exit();
     }
 
-    // Guardado unificado de variables de sesión
+    // 3. Guardado unificado de variables de sesión
     $nombreCompleto = trim(($user['nombre_usuario'] ?? '') . ' ' . ($user['apellidos_usuario'] ?? ''));
 
     $_SESSION['id_usuario']      = $user['id_usuario'];
     $_SESSION['usuario_id']      = $user['id_usuario'];
     $_SESSION['nombre_usuario']  = $user['nombre_usuario'];
     $_SESSION['nombre_completo'] = !empty($nombreCompleto) ? $nombreCompleto : $user['nombre_usuario'];
-    $_SESSION['correo_usuario']  = $user['correo_usuario'];
+    $_SESSION['correo_usuario']  = $user['email']; // Usamos $user['email']
     $_SESSION['id_rol']          = (int)$user['id_rol'];
     $_SESSION['es_superadmin']   = ((int)$user['id_rol'] === 3) ? 1 : 0;
     $_SESSION['logged_in']       = true;
