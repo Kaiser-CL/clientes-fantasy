@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
             }
         }
 
-        $mensaje = "¡Evento generado exitosamente! " . ($id_cliente_existente ? "Asociado a cliente existente." : "Cliente registrado correctamente.");
+        $mensaje = "¡Evento generado exitosamente!";
 
     } catch (Exception $e) {
         $error_db = "Error al guardar el evento: " . $e->getMessage();
@@ -107,9 +107,7 @@ if (isset($pdo)) {
     try {
         $stmt_cli = $pdo->query("SELECT id_usuario, nombre_usuario, apellidos_usuario, email FROM usuarios WHERE id_rol = 2 ORDER BY id_usuario DESC");
         $clientes_lista = $stmt_cli->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        $clientes_lista = [];
-    }
+    } catch (PDOException $e) { $clientes_lista = []; }
 
     try {
         $stmt_paquetes = $pdo->query("SELECT * FROM servicios 
@@ -173,7 +171,7 @@ if (isset($pdo)) {
             <form action="" method="POST" id="form-generar-evento">
                 <div class="row g-4">
                     
-                    <!-- COLUMNA IZQUIERDA: CLIENTE Y DETALLES -->
+                    <!-- COLUMNA IZQUIERDA -->
                     <div class="col-lg-7">
                         <div class="card-custom">
                             <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-user me-2"></i>Información del Cliente</h5>
@@ -188,7 +186,6 @@ if (isset($pdo)) {
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-muted d-block mt-1">Si seleccionas un cliente existente, los campos de abajo no son necesarios.</small>
                             </div>
 
                             <hr class="my-3">
@@ -241,40 +238,31 @@ if (isset($pdo)) {
                                     <label class="form-label">Nombre del Evento</label>
                                     <input type="text" name="nombre_evento" class="form-control" placeholder="Ej. Cumpleaños de Sofía" required>
                                 </div>
-                                <div class="col-12">
-                                    <label class="form-label">Observaciones y contactos para el cliente</label>
-                                    <textarea name="observaciones" class="form-control" rows="2" placeholder="Detalles o notas adicionales..."></textarea>
-                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- COLUMNA DERECHA: DATOS DEL EVENTO Y PAQUETES -->
+                    <!-- COLUMNA DERECHA -->
                     <div class="col-lg-5">
                         <div class="card-custom">
                             <h5 class="fw-bold text-primary mb-3"><i class="fa-solid fa-receipt me-2"></i>Datos del Evento</h5>
 
-                            <!-- SELECCIONAR PAQUETE BASE -->
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Seleccionar Paquete Base</label>
                                 <select name="id_paquete_base" id="select_paquete_base" class="form-select" onchange="actualizarCalculosEventos()" required>
-                                    <option value="" data-precio="0" data-ubicacion="ambos" data-por-persona="1">-- Seleccionar Paquete --</option>
+                                    <option value="" data-precio="0" data-ubicacion="ambos">-- Seleccionar Paquete --</option>
                                     <?php foreach ($paquetes_catalogo as $paq): 
-                                        $es_pp = (isset($paq['es_por_persona']) && $paq['es_por_persona'] == 0) ? '0' : '1';
                                         $ubi = strtolower($paq['ubicacion'] ?? 'ambos');
                                     ?>
                                         <option value="<?= $paq['id_servicio'] ?>" 
                                                 data-precio="<?= $paq['precio_servicio'] ?>" 
-                                                data-ubicacion="<?= $ubi ?>" 
-                                                data-por-persona="<?= $es_pp ?>"
-                                                data-tipo-cobro="<?= strtolower($paq['tipo_cobro'] ?? 'por_persona') ?>">
+                                                data-ubicacion="<?= $ubi ?>">
                                             <?= htmlspecialchars($paq['nombre_servicio']) ?> ($<?= number_format((float)$paq['precio_servicio'], 2) ?> / persona)
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
 
-                            <!-- SLIDER DE NÚMERO DE PERSONAS -->
                             <div class="mb-3 bg-light p-3 rounded border" id="contenedor_slider_personas">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <label for="num_personas_slider" class="form-label fw-bold mb-0">Número de Personas (Invitados):</label>
@@ -284,7 +272,6 @@ if (isset($pdo)) {
                                 <small id="msg_aforo_jardin" class="text-danger fw-bold d-none mt-1">⚠️ Aforo máximo para Jardín: 150 personas.</small>
                             </div>
 
-                            <!-- SERVICIOS EXTRAS -->
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <label class="form-label fw-bold mb-0">Servicios Extra</label>
                                 <button type="button" class="btn btn-sm btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalAgregarExtra" onclick="abrirModalExtra()">
@@ -299,7 +286,6 @@ if (isset($pdo)) {
 
                             <hr>
 
-                            <!-- RESUMEN DE PRECIOS -->
                             <div class="d-flex justify-content-between mb-1 fw-semibold">
                                 <span>Subtotal Paquete Base:</span>
                                 <span id="txt_subtotal_paquete">$0.00</span>
@@ -336,30 +322,16 @@ if (isset($pdo)) {
             <div class="modal-body">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Seleccionar Extra del Catálogo:</label>
-                    <select id="modal_select_extra" class="form-select" onchange="evaluarTipoExtra(this)">
+                    <select id="modal_select_extra" class="form-select">
                         <option value="">-- Seleccionar Servicio --</option>
-                        <?php foreach ($extras_catalogo as $ext): 
-                            $es_pp = ($ext['es_por_persona'] == 1 || strtolower($ext['tipo_cobro'] ?? '') === 'por_persona') ? '1' : '0';
-                            $ubi = strtolower($ext['ubicacion'] ?? 'ambos');
-                        ?>
+                        <?php foreach ($extras_catalogo as $ext): ?>
                             <option value="<?= $ext['id_servicio'] ?>" 
                                     data-nombre="<?= htmlspecialchars($ext['nombre_servicio']) ?>"
-                                    data-precio="<?= $ext['precio_servicio'] ?>"
-                                    data-ubicacion="<?= $ubi ?>"
-                                    data-por-persona="<?= $es_pp ?>"
-                                    data-tipo-cobro="<?= strtolower($ext['tipo_cobro'] ?? 'fijo') ?>">
-                                <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?><?= $es_pp === '1' ? ' / persona' : '' ?>)
+                                    data-precio="<?= $ext['precio_servicio'] ?>">
+                                <?= htmlspecialchars($ext['nombre_servicio']) ?> ($<?= number_format((float)$ext['precio_servicio'], 2) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
-                </div>
-
-                <div class="mb-3 bg-light p-3 rounded border d-none" id="modal_contenedor_personas_extra">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <label class="form-label fw-bold mb-0">Personas para este Extra:</label>
-                        <span class="badge bg-success fs-6 fw-bold" id="modal_label_personas_extra">0 personas</span>
-                    </div>
-                    <input type="range" class="form-range" id="modal_slider_personas_extra" min="0" max="300" step="5" value="0" oninput="document.getElementById('modal_label_personas_extra').innerText = this.value + ' personas'">
                 </div>
             </div>
             <div class="modal-footer">
@@ -414,8 +386,8 @@ function sincronizarPersonas(valor) {
 function filtrarPorUbicacion() {
     let salon = document.getElementById('salon_evento').value.toLowerCase();
     let esJardin = (salon === 'jardin');
-    
     let slider = document.getElementById('num_personas_slider');
+    
     if (esJardin) {
         slider.max = 150;
         if (parseInt(slider.value) > 150) {
@@ -445,24 +417,6 @@ function filtrarPorUbicacion() {
 
 function abrirModalExtra() {
     document.getElementById('modal_select_extra').value = '';
-    document.getElementById('modal_contenedor_personas_extra').classList.add('d-none');
-}
-
-function evaluarTipoExtra(selectElem) {
-    let opt = selectElem.options[selectElem.selectedIndex];
-    if (!opt.value) return;
-
-    let esPorPersona = opt.getAttribute('data-por-persona') === '1' || opt.getAttribute('data-tipo-cobro') === 'por_persona';
-    let contenedorSlider = document.getElementById('modal_contenedor_personas_extra');
-    
-    if (esPorPersona) {
-        contenedorSlider.classList.remove('d-none');
-        let personasPaquete = document.getElementById('num_personas_slider').value;
-        document.getElementById('modal_slider_personas_extra').value = personasPaquete;
-        document.getElementById('modal_label_personas_extra').innerText = personasPaquete + ' personas';
-    } else {
-        contenedorSlider.classList.add('d-none');
-    }
 }
 
 function confirmarAgregarExtra() {
@@ -473,23 +427,15 @@ function confirmarAgregarExtra() {
     let opt = select.options[select.selectedIndex];
     let nombre = opt.getAttribute('data-nombre');
     let precio = parseFloat(opt.getAttribute('data-precio')) || 0;
-    let esPorPersona = opt.getAttribute('data-por-persona') === '1' || opt.getAttribute('data-tipo-cobro') === 'por_persona';
-    
-    let personas = esPorPersona ? parseInt(document.getElementById('modal_slider_personas_extra').value) || 0 : 1;
-    let subtotalExtra = esPorPersona ? (precio * personas) : precio;
 
     extrasAgregados.push({
         id_servicio: id,
         nombre: nombre,
-        precio_unitario: precio,
-        personas: personas,
-        es_por_persona: esPorPersona,
-        subtotal: subtotalExtra
+        precio: precio
     });
 
     renderizarExtrasUI();
     actualizarCalculosEventos();
-
     modalExtraBootstrap.hide();
 }
 
@@ -508,15 +454,13 @@ function renderizarExtrasUI() {
     extrasAgregados.forEach((item, index) => {
         let div = document.createElement('div');
         div.className = 'd-flex justify-content-between align-items-center border-bottom py-2 text-start';
-        let detalleCant = item.es_por_persona ? ` <span class="text-muted small">(${item.personas} personas)</span>` : '';
-        
         div.innerHTML = `
             <div>
-                <strong class="text-dark fs-6">${item.nombre}</strong>${detalleCant}
+                <strong class="text-dark fs-6">${item.nombre}</strong>
                 <input type="hidden" name="extras[]" value="${item.id_servicio}">
             </div>
             <div class="d-flex align-items-center">
-                <span class="fw-bold me-2 text-primary">$${item.subtotal.toFixed(2)}</span>
+                <span class="fw-bold me-2 text-primary">$${item.precio.toFixed(2)}</span>
                 <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="eliminarExtra(${index})">&times;</button>
             </div>
         `;
@@ -530,7 +474,7 @@ function eliminarExtra(index) {
     actualizarCalculosEventos();
 }
 
-// CORRECCIÓN CLAVE EN LA MULTIPLICACIÓN DEL PAQUETE
+// MULTIPLICACIÓN GARANTIZADA
 function actualizarCalculosEventos() {
     let selectPaq = document.getElementById('select_paquete_base');
     let optPaq = selectPaq.options[selectPaq.selectedIndex];
@@ -540,22 +484,16 @@ function actualizarCalculosEventos() {
 
     if (optPaq && optPaq.value) {
         let precioUnitario = parseFloat(optPaq.getAttribute('data-precio')) || 0;
-        let esPP = optPaq.getAttribute('data-por-persona') === '1' || optPaq.getAttribute('data-tipo-cobro') === 'por_persona';
-        
-        // Multiplica el precio base por el número de invitados si es paquete por persona o si no está marcado como costo fijo
-        if (esPP || (optPaq.getAttribute('data-tipo-cobro') !== 'fijo')) {
-            subtotalPaquete = precioUnitario * numPersonas;
-        } else {
-            subtotalPaquete = precioUnitario;
-        }
+        // Multiplica SIEMPRE el costo unitario por la cantidad de invitados
+        subtotalPaquete = precioUnitario * numPersonas;
     }
 
-    let subtotalExtras = extrasAgregados.reduce((sum, item) => sum + item.subtotal, 0);
+    let subtotalExtras = extrasAgregados.reduce((sum, item) => sum + item.precio, 0);
     let totalGeneral = subtotalPaquete + subtotalExtras;
 
-    document.getElementById('txt_subtotal_paquete').innerText = '$' + subtotalPaquete.toFixed(2);
-    document.getElementById('txt_subtotal_extras').innerText = '$' + subtotalExtras.toFixed(2);
-    document.getElementById('txt_total_evento').innerText = '$' + totalGeneral.toFixed(2);
+    document.getElementById('txt_subtotal_paquete').innerText = '$' + subtotalPaquete.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('txt_subtotal_extras').innerText = '$' + subtotalExtras.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('txt_total_evento').innerText = '$' + totalGeneral.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 </script>
 
