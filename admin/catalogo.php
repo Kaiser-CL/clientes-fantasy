@@ -29,8 +29,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         $id_eliminar = $_POST['id_servicio'] ?? null;
         if ($id_eliminar) {
             try {
+                // 1. Obtener datos antes de eliminar para la bitácora
+                $stmtOld = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+                $stmtOld->execute([$id_eliminar]);
+                $datosEliminados = $stmtOld->fetch(PDO::FETCH_ASSOC);
+
+                // 2. Eliminar registro
                 $stmt = $pdo->prepare("DELETE FROM servicios WHERE id_servicio = ?");
                 $stmt->execute([$id_eliminar]);
+
+                // 3. REGISTRO EN BITÁCORA
+                if (function_exists('registrarBitacora')) {
+                    registrarBitacora($pdo, 'ELIMINAR', 'servicios', $id_eliminar, $datosEliminados, null);
+                }
+
                 $_SESSION['mensaje_exito'] = "Registro eliminado correctamente del catálogo.";
                 header("Location: catalogo.php");
                 exit;
@@ -56,18 +68,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         if (empty($foto)) $foto = 'default.png';
 
         try {
+            $nuevosDatos = [
+                'nombre_servicio' => $nombre,
+                'descripcion_servicio' => $descripcion,
+                'precio_servicio' => $precio,
+                'es_por_persona' => $es_por_persona,
+                'categoria' => $categoria,
+                'ubicacion' => $ubicacion,
+                'tipo_registro' => $tipo_registro
+            ];
+
             if ($id_servicio) {
+                // Obtener datos viejos para auditoría
+                $stmtOld = $pdo->prepare("SELECT * FROM servicios WHERE id_servicio = ?");
+                $stmtOld->execute([$id_servicio]);
+                $datosViejos = $stmtOld->fetch(PDO::FETCH_ASSOC);
+
                 $stmt = $pdo->prepare("UPDATE servicios 
                     SET nombre_servicio = ?, descripcion_servicio = ?, precio_servicio = ?, 
                         es_por_persona = ?, foto_servicio = ?, disponible_servicio = ?, 
                         categoria = ?, ubicacion = ?, tipo_registro = ?, id_categoria = ?
                     WHERE id_servicio = ?");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria, $id_servicio]);
+
+                // REGISTRO EN BITÁCORA
+                if (function_exists('registrarBitacora')) {
+                    registrarBitacora($pdo, 'ACTUALIZAR', 'servicios', $id_servicio, $datosViejos, $nuevosDatos);
+                }
             } else {
                 $stmt = $pdo->prepare("INSERT INTO servicios 
                     (nombre_servicio, descripcion_servicio, precio_servicio, es_por_persona, foto_servicio, disponible_servicio, categoria, ubicacion, tipo_registro, id_categoria) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([$nombre, $descripcion, $precio, $es_por_persona, $foto, $disponible, $categoria, $ubicacion, $tipo_registro, $id_categoria]);
+                $nuevoId = $pdo->lastInsertId();
+
+                // REGISTRO EN BITÁCORA
+                if (function_exists('registrarBitacora')) {
+                    registrarBitacora($pdo, 'AGREGAR', 'servicios', $nuevoId, null, $nuevosDatos);
+                }
             }
 
             $_SESSION['mensaje_exito'] = "¡Registro guardado exitosamente como " . strtoupper($tipo_registro) . "!";
@@ -93,40 +131,29 @@ if (isset($pdo)) {
         $servicios_lista = [];
     }
 }
+
+include __DIR__ . '/includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Catálogo - Admin Fantasy</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <style>
-        body { min-height: 100vh; background-color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
-        .card-custom { background: #ffffff; border-radius: 12px; border: 2px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .form-label { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem; }
-        .form-control, .form-select { border-radius: 8px; border: 1.5px solid #94a3b8; padding: 0.65rem 0.875rem; color: #0f172a; font-weight: 600; }
-        .dropzone-area { border: 2.5px dashed #3b82f6; background-color: #eff6ff; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s ease; }
-        .dropzone-area:hover, .dropzone-area.dragover { background-color: #dbeafe; border-color: #1d4ed8; }
-        .preview-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #cbd5e1; }
-        .thumb-container { position: relative; display: inline-block; margin: 5px; }
-        .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
-    </style>
-</head>
-<body>
+
+<style>
+    .card-custom { background: #ffffff; border-radius: 12px; border: 1px solid #cbd5e1; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .form-label { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem; }
+    .form-control, .form-select { border-radius: 8px; border: 1.5px solid #94a3b8; padding: 0.65rem 0.875rem; color: #0f172a; font-weight: 600; }
+    .dropzone-area { border: 2.5px dashed var(--color-azul); background-color: #eff6ff; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s ease; }
+    .dropzone-area:hover, .dropzone-area.dragover { background-color: #dbeafe; }
+    .preview-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #cbd5e1; }
+    .thumb-container { position: relative; display: inline-block; margin: 5px; }
+    .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
+</style>
 
 <div class="container-fluid">
     <div class="row">
-        <?php 
-        $sidebar_path = __DIR__ . '/includes/sidebar.php';
-        if (file_exists($sidebar_path)) { include $sidebar_path; }
-        ?>
+        <?php include __DIR__ . '/includes/sidebar.php'; ?>
 
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
             <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
-                <h2 class="h3 mb-0"><i class="fa-solid fa-layer-group text-primary me-2"></i>Gestión de Catálogo</h2>
-                <button class="btn btn-primary fw-bold px-3 py-2" onclick="abrirModalNuevo()">
+                <h2 class="h3 mb-0 fw-bold" style="color: var(--color-morado);"><i class="fa-solid fa-layer-group me-2" style="color: var(--color-rosa);"></i>Gestión de Catálogo</h2>
+                <button class="btn btn-primary" onclick="abrirModalNuevo()">
                     <i class="fa-solid fa-plus me-1"></i> Agregar Nuevo Registro
                 </button>
             </div>
@@ -146,8 +173,8 @@ if (isset($pdo)) {
 
             <div class="card-custom p-0 overflow-hidden">
                 <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
-                    <h4 class="fw-bold m-0 text-dark"><i class="fa-solid fa-list text-primary me-2"></i>Elementos del Catálogo</h4>
-                    <span class="badge bg-dark fs-6"><?= count($servicios_lista) ?> Registros</span>
+                    <h5 class="fw-bold m-0 text-dark"><i class="fa-solid fa-list me-2" style="color: var(--color-morado);"></i>Elementos del Catálogo</h5>
+                    <span class="badge rounded-pill bg-dark fs-6"><?= count($servicios_lista) ?> Registros</span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -176,23 +203,23 @@ if (isset($pdo)) {
                                     <tr>
                                         <td class="ps-3">
                                             <?php if ($tipo === 'paquete'): ?>
-                                                <span class="badge bg-primary text-white"><i class="fa-solid fa-box me-1"></i> Paquete</span>
+                                                <span class="badge badge-jardin rounded-pill"><i class="fa-solid fa-box me-1"></i> Paquete</span>
                                             <?php else: ?>
-                                                <span class="badge bg-info text-dark"><i class="fa-solid fa-puzzle-piece me-1"></i> Servicio Extra</span>
+                                                <span class="badge badge-rosa rounded-pill"><i class="fa-solid fa-puzzle-piece me-1"></i> Servicio Extra</span>
                                             <?php endif; ?>
                                         </td>
                                         <td>
                                             <?php if ($cat === 'social'): ?>
-                                                <span class="badge bg-dark text-white"><i class="fa-solid fa-glass-cheers me-1"></i> Social</span>
+                                                <span class="badge bg-dark text-white rounded-pill"><i class="fa-solid fa-glass-cheers me-1"></i> Social</span>
                                             <?php else: ?>
-                                                <span class="badge bg-warning text-dark"><i class="fa-solid fa-child me-1"></i> Infantil</span>
+                                                <span class="badge badge-amarillo rounded-pill"><i class="fa-solid fa-child me-1"></i> Infantil</span>
                                             <?php endif; ?>
                                         </td>
                                         <td>
                                             <?php if (strpos($ubi, 'carmelo') !== false): ?>
-                                                <span class="badge bg-secondary text-white"><i class="fa-solid fa-building me-1"></i> Carmelo</span>
+                                                <span class="badge bg-secondary text-white rounded-pill"><i class="fa-solid fa-building me-1"></i> Carmelo</span>
                                             <?php else: ?>
-                                                <span class="badge bg-success text-white"><i class="fa-solid fa-tree me-1"></i> Jardín</span>
+                                                <span class="badge badge-verde rounded-pill"><i class="fa-solid fa-tree me-1"></i> Jardín</span>
                                             <?php endif; ?>
                                         </td>
                                         <td>
@@ -200,24 +227,24 @@ if (isset($pdo)) {
                                         </td>
                                         <td class="fw-bold text-success fs-6">$<?= number_format((float)($s['precio_servicio'] ?? 0), 2) ?></td>
                                         <td>
-                                            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="abrirModalGaleria(<?= $s['id_servicio'] ?>, '<?= htmlspecialchars($s['nombre_servicio'], ENT_QUOTES) ?>', '<?= $tipo ?>')">
-                                                <i class="fa-solid fa-images text-warning me-1"></i> <?= $s['total_fotos'] ?> fotos/vid
+                                            <button class="btn btn-sm btn-outline-primary fw-bold" onclick="abrirModalGaleria(<?= $s['id_servicio'] ?>, '<?= htmlspecialchars($s['nombre_servicio'], ENT_QUOTES) ?>', '<?= $tipo ?>')">
+                                                <i class="fa-solid fa-images me-1"></i> <?= $s['total_fotos'] ?> fotos/vid
                                             </button>
                                         </td>
                                         <td>
-                                            <span class="badge <?= !empty($s['disponible_servicio']) ? 'bg-success' : 'bg-danger' ?>">
+                                            <span class="badge rounded-pill <?= !empty($s['disponible_servicio']) ? 'bg-success' : 'bg-danger' ?>">
                                                 <?= !empty($s['disponible_servicio']) ? 'Activo' : 'Inactivo' ?>
                                             </span>
                                         </td>
                                         <td class="text-center">
                                             <div class="btn-group">
-                                                <button class="btn btn-warning btn-sm fw-bold me-1" onclick='editarServicio(<?= json_encode($s) ?>)'>
+                                                <button class="btn btn-warning btn-sm fw-bold me-1 rounded-pill" onclick='editarServicio(<?= json_encode($s) ?>)'>
                                                     <i class="fa-solid fa-pen-to-square"></i>
                                                 </button>
                                                 <form method="POST" style="display:inline;" onsubmit="return confirm('¿Seguro que deseas eliminar este elemento?');">
                                                     <input type="hidden" name="accion" value="eliminar">
                                                     <input type="hidden" name="id_servicio" value="<?= $s['id_servicio'] ?>">
-                                                    <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                                                    <button type="submit" class="btn btn-danger btn-sm fw-bold rounded-pill">
                                                         <i class="fa-solid fa-trash"></i>
                                                     </button>
                                                 </form>
@@ -239,7 +266,7 @@ if (isset($pdo)) {
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold" id="modalTitulo"><i class="fa-solid fa-plus text-primary me-2"></i>Agregar Registro</h5>
+                <h5 class="modal-title fw-bold" id="modalTitulo"><i class="fa-solid fa-plus me-2" style="color: var(--color-rosa);"></i>Agregar Registro</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form action="catalogo.php" method="POST" id="form-servicio">
@@ -294,8 +321,8 @@ if (isset($pdo)) {
                     </div>
                 </div>
                 <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary fw-bold"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Registro</button>
+                    <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Registro</button>
                 </div>
             </form>
         </div>
@@ -307,16 +334,15 @@ if (isset($pdo)) {
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold" id="titulo_modal_galeria"><i class="fa-solid fa-cloud-arrow-up me-2"></i>Galería de Fotos y Videos</h5>
+                <h5 class="modal-title fw-bold" id="titulo_modal_galeria"><i class="fa-solid fa-cloud-arrow-up me-2" style="color: var(--color-rosa);"></i>Galería de Fotos y Videos</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="galeria_id_servicio">
                 <input type="hidden" id="galeria_tipo_registro">
 
-                <!-- DROPZONE DRAG & DROP -->
                 <div class="dropzone-area mb-3" id="dropzone_target" onclick="document.getElementById('input_archivos_hidden').click()">
-                    <i class="fa-solid fa-cloud-arrow-up fa-3x text-primary mb-2"></i>
+                    <i class="fa-solid fa-cloud-arrow-up fa-3x mb-2" style="color: var(--color-morado);"></i>
                     <h5 class="fw-bold text-dark mb-1">Arrastra tus fotos o videos aquí</h5>
                     <p class="text-muted small mb-0">o haz clic para seleccionar archivos desde tu equipo</p>
                     <input type="file" id="input_archivos_hidden" multiple accept="image/*,video/*" class="d-none" onchange="subirArchivosGaleria(this.files)">
@@ -335,7 +361,7 @@ if (isset($pdo)) {
                 <div id="status_upload_galeria" class="alert py-2 mt-3 d-none fw-bold small"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">Cerrar</button>
             </div>
         </div>
     </div>
@@ -351,7 +377,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let modalGaleriaElement = document.getElementById('modalGaleria');
     bsModalGaleria = new bootstrap.Modal(modalGaleriaElement);
 
-    // RECARGAR LA PÁGINA AL CERRAR EL MODAL PARA ACTUALIZAR LOS CONTADORES
     modalGaleriaElement.addEventListener('hidden.bs.modal', function () {
         location.reload();
     });
@@ -369,14 +394,14 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function abrirModalNuevo() {
-    document.getElementById('modalTitulo').innerHTML = '<i class="fa-solid fa-plus text-primary me-2"></i>Agregar Registro al Catálogo';
+    document.getElementById('modalTitulo').innerHTML = '<i class="fa-solid fa-plus me-2" style="color: var(--color-rosa);"></i>Agregar Registro al Catálogo';
     document.getElementById('form-servicio').reset();
     document.getElementById('id_servicio').value = '';
     modalInstancia.show();
 }
 
 function editarServicio(s) {
-    document.getElementById('modalTitulo').innerHTML = '<i class="fa-solid fa-pen-to-square text-primary me-2"></i>Editar Registro #' + s.id_servicio;
+    document.getElementById('modalTitulo').innerHTML = '<i class="fa-solid fa-pen-to-square me-2" style="color: var(--color-rosa);"></i>Editar Registro #' + s.id_servicio;
     document.getElementById('id_servicio').value = s.id_servicio || '';
     document.getElementById('nombre_servicio').value = s.nombre_servicio || '';
     document.getElementById('precio_servicio').value = s.precio_servicio || '';
@@ -436,8 +461,6 @@ function cargarGaleriaServicio(idServicio, tipo) {
             div.className = 'thumb-container';
 
             let idGaleria = item.id_galeria || item.id;
-            
-            // PRIORIZAMOS url_completa, Y SI NO EXISTE ARMAMOS LA RUTA RELATIVA DIRECTA
             let srcFinal = item.url_completa ? item.url_completa : `../${item.ruta_archivo}`;
 
             let mediaHTML = (item.tipo_archivo === 'video')
