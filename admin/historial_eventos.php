@@ -9,23 +9,86 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once 'auth_check.php';
 require_once __DIR__ . '/../db_config.php';
 
+// --- ENDPOINT AJAX PARA APLICAR CAMBIOS SIN CERRAR EL MODAL ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['es_ajax']) && $_POST['es_ajax'] == '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $id_evento = intval($_POST['id_evento']);
+        $nuevo_estado = $_POST['estado_evento'] ?? 'confirmado';
+        $num_personas = intval($_POST['num_personas_modal'] ?? 50);
+
+        // 1. Actualizar evento
+        $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
+        $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
+
+        // 2. Si se agrega un nuevo servicio extra
+        if (!empty($_POST['nuevo_id_servicio'])) {
+            $id_serv = intval($_POST['nuevo_id_servicio']);
+            $cant_input = intval($_POST['nueva_cantidad_servicio'] ?? 1);
+            if ($cant_input < 1) $cant_input = 1;
+
+            $stmt_s_info = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ?");
+            $stmt_s_info->execute([$id_serv]);
+            $s_info = $stmt_s_info->fetch(PDO::FETCH_ASSOC);
+
+            if ($s_info) {
+                $precio = floatval($s_info['precio_servicio']);
+                $subtotal = $precio * $cant_input;
+                $stmt_add_s = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
+                $stmt_add_s->execute([$id_evento, $id_serv, $cant_input, $subtotal]);
+            }
+        }
+
+        // 3. Actualizar cantidades
+        if (!empty($_POST['actualizar_cantidades']) && is_array($_POST['actualizar_cantidades'])) {
+            $stmt_upd_cant = $pdo->prepare("UPDATE evento_servicio SET cantidad_servicio_evento = ?, subtotal_servicio_evento = ? WHERE id_evento_servicio = ?");
+            foreach ($_POST['actualizar_cantidades'] as $id_es => $nueva_cant) {
+                $cant_val = max(1, intval($nueva_cant));
+                $stmt_price = $pdo->prepare("SELECT s.precio_servicio FROM evento_servicio es INNER JOIN servicios s ON es.id_servicio = s.id_servicio WHERE es.id_evento_servicio = ?");
+                $stmt_price->execute([$id_es]);
+                $p_row = $stmt_price->fetch(PDO::FETCH_ASSOC);
+                if ($p_row) {
+                    $sub_val = floatval($p_row['precio_servicio']) * $cant_val;
+                    $stmt_upd_cant->execute([$cant_val, $sub_val, $id_es]);
+                }
+            }
+        }
+
+        // 4. Traer lista actualizada de servicios para responder al modal
+        $sql_servs = "SELECT es.id_evento_servicio, es.cantidad_servicio_evento, es.subtotal_servicio_evento,
+                             s.id_servicio, s.nombre_servicio, s.precio_servicio, s.tipo_registro
+                      FROM evento_servicio es
+                      INNER JOIN servicios s ON es.id_servicio = s.id_servicio
+                      WHERE es.id_evento = ?";
+        $stmt_s = $pdo->prepare($sql_servs);
+        $stmt_s->execute([$id_evento]);
+        $servicios_actualizados = $stmt_s->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'exito' => true,
+            'mensaje' => 'Cambios aplicados correctamente.',
+            'servicios' => $servicios_actualizados
+        ]);
+        exit;
+
+    } catch (Exception $e) {
+        echo json_encode(['exito' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
+}
+
 $mensaje = '';
 $error_db = null;
 
-// --- PROCESAR CAMBIOS Y ELIMINACIÓN DE EVENTOS ---
+// --- PROCESAR POST REGULAR ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    
-    // A) ELIMINAR EVENTO COMPLETO
     if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'eliminar_evento') {
         try {
             $id_evento_eliminar = intval($_POST['id_evento']);
-
             if ($id_evento_eliminar > 0) {
-                // 1. Borrar servicios asociados al evento en evento_servicio
                 $stmt_del_servs = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento = ?");
                 $stmt_del_servs->execute([$id_evento_eliminar]);
 
-                // 2. Borrar el evento principal
                 $stmt_del_evt = $pdo->prepare("DELETE FROM eventos WHERE id_evento = ?");
                 $stmt_del_evt->execute([$id_evento_eliminar]);
 
@@ -36,29 +99,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         }
     }
 
-    // B) GUARDAR CAMBIOS O EDICIONES EN EL EVENTO
     if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'guardar_cambios') {
         try {
             $id_evento = intval($_POST['id_evento']);
             $nuevo_estado = $_POST['estado_evento'] ?? 'confirmado';
             $num_personas = intval($_POST['num_personas_modal'] ?? 50);
 
-            // 1. Actualizar número de personas y estado del evento
-            try {
-                $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
-                $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
-            } catch (PDOException $e_col) {
-                $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ? WHERE id_evento = ?");
-                $stmt_upd->execute([$nuevo_estado, $id_evento]);
-            }
+            $stmt_upd = $pdo->prepare("UPDATE eventos SET estado = ?, num_personas = ? WHERE id_evento = ?");
+            $stmt_upd->execute([$nuevo_estado, $num_personas, $id_evento]);
 
-            // 2. Si se agrega un nuevo servicio extra en el modal
             if (!empty($_POST['nuevo_id_servicio'])) {
                 $id_serv = intval($_POST['nuevo_id_servicio']);
                 $cant_input = intval($_POST['nueva_cantidad_servicio'] ?? 1);
-                if ($cant_input < 1) $cant_input = 1;
-                
-                // Consultar precio del servicio
                 $stmt_s_info = $pdo->prepare("SELECT precio_servicio FROM servicios WHERE id_servicio = ?");
                 $stmt_s_info->execute([$id_serv]);
                 $s_info = $stmt_s_info->fetch(PDO::FETCH_ASSOC);
@@ -66,13 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 if ($s_info) {
                     $precio = floatval($s_info['precio_servicio']);
                     $subtotal = $precio * $cant_input;
-
                     $stmt_add_s = $pdo->prepare("INSERT INTO evento_servicio (id_evento, id_servicio, cantidad_servicio_evento, subtotal_servicio_evento) VALUES (?, ?, ?, ?)");
                     $stmt_add_s->execute([$id_evento, $id_serv, $cant_input, $subtotal]);
                 }
             }
 
-            // 3. Si se actualizan cantidades de servicios extras existentes
             if (!empty($_POST['actualizar_cantidades']) && is_array($_POST['actualizar_cantidades'])) {
                 $stmt_upd_cant = $pdo->prepare("UPDATE evento_servicio SET cantidad_servicio_evento = ?, subtotal_servicio_evento = ? WHERE id_evento_servicio = ?");
                 foreach ($_POST['actualizar_cantidades'] as $id_es => $nueva_cant) {
@@ -87,7 +137,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 }
             }
 
-            // 4. Si se elimina un servicio individual del evento
             if (!empty($_POST['eliminar_id_evento_servicio'])) {
                 $id_es = intval($_POST['eliminar_id_evento_servicio']);
                 $stmt_del_s = $pdo->prepare("DELETE FROM evento_servicio WHERE id_evento_servicio = ?");
@@ -101,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// --- CONSULTAR LISTA DE EVENTOS (SEPARANDO PRÓXIMOS Y ATRASADOS) ---
+// --- CONSULTAR LISTA DE EVENTOS ---
 $eventos_proximos = [];
 $eventos_atrasados = [];
 $servicios_catalogo = [];
@@ -442,7 +491,7 @@ if (isset($pdo)) {
                             <input type="number" name="nueva_cantidad_servicio" id="modal_input_cantidad_extra" class="form-control border-success" value="1" min="1" oninput="calcularTotalEstimadoExtra()">
                         </div>
                         <div class="col-md-3 mt-auto">
-                            <button type="submit" class="btn btn-success w-100 fw-bold"><i class="fa-solid fa-plus me-1"></i> Agregar Extra</button>
+                            <button type="button" class="btn btn-success w-100 fw-bold" onclick="aplicarCambiosAjax()"><i class="fa-solid fa-plus me-1"></i> Agregar Extra</button>
                         </div>
                         <div class="col-12 mt-1">
                             <small class="text-primary fw-bold" id="lbl_estimado_extra_nuevo"></small>
@@ -454,6 +503,9 @@ if (isset($pdo)) {
                         <h5 class="fw-bold mb-0">TOTAL RECALCULADO:</h5>
                         <h3 class="fw-bold text-primary mb-0" id="modal_total_recalculado">$0.00</h3>
                     </div>
+
+                    <!-- NOTIFICACIÓN AJAX EN VIVO -->
+                    <div id="alert_ajax_status" class="alert py-2 d-none fw-bold small"></div>
 
                     <!-- ESTADO -->
                     <div class="mb-2">
@@ -471,8 +523,12 @@ if (isset($pdo)) {
                         <i class="fa-solid fa-trash me-1"></i> Eliminar Evento
                     </button>
                     <div>
-                        <button type="button" class="btn btn-secondary fw-bold me-1" data-bs-dismiss="modal">Cerrar</button>
-                        <button type="submit" class="btn btn-primary fw-bold"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
+                        <button type="button" class="btn btn-info text-white fw-bold me-1" onclick="aplicarCambiosAjax()">
+                            <i class="fa-solid fa-rotate me-1"></i> Aplicar Cambios
+                        </button>
+                        <button type="submit" class="btn btn-primary fw-bold">
+                            <i class="fa-solid fa-floppy-disk me-1"></i> Guardar y Cerrar
+                        </button>
                     </div>
                 </div>
             </form>
@@ -564,13 +620,14 @@ function recalcularModal() {
     let paqueteFound = null;
     let extrasList = [];
 
-    servicios.forEach(s => {
+    // CLASIFICACIÓN FLEXIBLE PARA EVENTOS VIEJOS Y NUEVOS
+    servicios.forEach((s, index) => {
         let tipoReg = (s.tipo_registro || '').toLowerCase();
         let nom = (s.nombre_servicio || '').toLowerCase();
 
-        let esPaqueteStrict = (tipoReg === 'paquete') || nom.includes('paquete');
+        let esPaqueteStrict = (tipoReg === 'paquete') || nom.includes('paquete') || nom.includes('básico') || nom.includes('infantil') || nom.includes('social');
 
-        if (esPaqueteStrict && !paqueteFound) {
+        if ((esPaqueteStrict || index === 0) && !paqueteFound) {
             paqueteFound = s;
         } else {
             extrasList.push(s);
@@ -665,6 +722,49 @@ function recalcularTotalSumado() {
     document.getElementById('modal_total_recalculado').innerText = '$' + totalGen.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
+// FUNCIONALIDAD AJAX PARA "APLICAR CAMBIOS" SIN CERRAR MODAL
+function aplicarCambiosAjax() {
+    let form = document.getElementById('form_modal_evento');
+    let formData = new FormData(form);
+    formData.append('es_ajax', '1');
+
+    let alertBox = document.getElementById('alert_ajax_status');
+    alertBox.className = 'alert alert-info py-2 fw-bold small';
+    alertBox.innerText = 'Guardando y recalculando cambios...';
+    alertBox.classList.remove('d-none');
+
+    fetch('historial_eventos.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.exito) {
+            alertBox.className = 'alert alert-success py-2 fw-bold small';
+            alertBox.innerText = '✓ Cambios guardados correctamente.';
+            
+            // Actualizar arreglo local para refrescar modal
+            if (data.servicios) {
+                modalEventoActual.servicios_asociados = data.servicios;
+            }
+            document.getElementById('modal_select_nuevo_servicio').value = '';
+            document.getElementById('modal_input_cantidad_extra').value = '1';
+            document.getElementById('lbl_estimado_extra_nuevo').innerText = '';
+            
+            recalcularModal();
+
+            setTimeout(() => { alertBox.classList.add('d-none'); }, 2500);
+        } else {
+            alertBox.className = 'alert alert-danger py-2 fw-bold small';
+            alertBox.innerText = 'Error: ' + (data.error || 'No se pudieron aplicar los cambios.');
+        }
+    })
+    .catch(err => {
+        alertBox.className = 'alert alert-danger py-2 fw-bold small';
+        alertBox.innerText = 'Error de conexión con el servidor.';
+    });
+}
+
 function eliminarExtraModal(idEventoServicio) {
     if (confirm('¿Deseas remover este servicio del evento?')) {
         document.getElementById('modal_eliminar_id_es').value = idEventoServicio;
@@ -674,7 +774,7 @@ function eliminarExtraModal(idEventoServicio) {
 
 function eliminarEventoDesdeModal() {
     if (!modalEventoActual) return;
-    let folio = "#EV-" + String(modalEventoActual.id_evento).padStart(5, '0');
+    let folio = "#EV-" . String(modalEventoActual.id_evento).padStart(5, '0');
     let nom = modalEventoActual.nombre_evento || '';
     
     if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nom}")?\n\nEsta acción NO eliminará al cliente registrado.`)) {
@@ -684,7 +784,7 @@ function eliminarEventoDesdeModal() {
 }
 
 function confirmarEliminarDirecto(idEvento, nombreEvento) {
-    let folio = "#EV-" + String(idEvento).padStart(5, '0');
+    let folio = "#EV-" . String(idEvento).padStart(5, '0');
     if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nombreEvento}")?\n\nEl cliente seguirá conservándose en tu catálogo.`)) {
         document.getElementById('id_evento_eliminar_input').value = idEvento;
         document.getElementById('form_eliminar_evento_directo').submit();
