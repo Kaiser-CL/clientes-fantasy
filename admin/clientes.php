@@ -65,11 +65,11 @@ $clientes = [];
 if (isset($pdo)) {
     try {
         $sql = "SELECT u.id_usuario, u.nombre_usuario, u.apellidos_usuario, 
-                       u.correo_usuario, u.telefono_usuario, u.estado_usuario,
-                       (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos
-                FROM usuarios u
-                WHERE u.id_rol = 2
-                ORDER BY u.id_usuario DESC";
+               u.email, u.telefono_usuario, u.estado_usuario,
+               (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos
+        FROM usuarios u
+        WHERE u.id_rol = 2
+        ORDER BY u.id_usuario DESC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute();
         $clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
