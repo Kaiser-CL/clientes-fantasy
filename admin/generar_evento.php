@@ -36,10 +36,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 if ($user_found) {
                     $id_usuario_final = $user_found['id_usuario'];
                 } else {
-                    $pass_default = password_hash('fantasy2026', PASSWORD_BCRYPT);
-                    $stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, rol_usuario, id_rol) VALUES (?, ?, ?, ?, ?, 'cliente', 2)");
-                    $stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default]);
-                    $id_usuario_final = $pdo->lastInsertId();
+                $pass_default = password_hash('fantasy2026', PASSWORD_BCRYPT);
+$id_empleado_logueado = $_SESSION['id_usuario'] ?? null; // Trae el ID del usuario actual en admin
+$stmt_ins = $pdo->prepare("INSERT INTO usuarios (nombre_usuario, apellidos_usuario, correo_usuario, telefono_usuario, contrasena_usuario, id_rol, id_empleado_registro) VALUES (?, ?, ?, ?, ?, 2, ?)");
+$stmt_ins->execute([$nombre_cliente, $apellidos_cliente, $correo_cliente, $telefono_cliente, $pass_default, $id_empleado_logueado]);   
+                $id_usuario_final = $pdo->lastInsertId();
                 }
             }
         }
