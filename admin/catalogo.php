@@ -436,9 +436,13 @@ function cargarGaleriaServicio(idServicio, tipo) {
             div.className = 'thumb-container';
 
             let idGaleria = item.id_galeria || item.id;
+            
+            // PRIORIZAMOS url_completa, Y SI NO EXISTE ARMAMOS LA RUTA RELATIVA DIRECTA
+            let srcFinal = item.url_completa ? item.url_completa : `../${item.ruta_archivo}`;
+
             let mediaHTML = (item.tipo_archivo === 'video')
-                ? `<video class="preview-thumb" src="../${item.ruta_archivo}" muted></video>`
-                : `<img src="../${item.ruta_archivo}" class="preview-thumb">`;
+                ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
+                : `<img src="${srcFinal}" class="preview-thumb">`;
 
             div.innerHTML = `
                 ${mediaHTML}
