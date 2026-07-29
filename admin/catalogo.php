@@ -113,25 +113,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// CONSULTAR CATÁLOGO Y CONTAR ARCHIVOS DESDE JSON
+// CONSULTAR CATÁLOGO Y CONTAR TODAS LAS FILAS DE LA TABLA servicio_galeria
 $servicios_lista = [];
 if (isset($pdo)) {
     try {
         $stmt = $pdo->query("SELECT s.*, 
-            (SELECT g.url_archivo FROM galeria_conceptos g WHERE g.id_servicio = s.id_servicio LIMIT 1) as galeria_json 
+            (SELECT COUNT(*) FROM servicio_galeria g WHERE g.id_servicio = s.id_servicio) as total_fotos 
             FROM servicios s ORDER BY s.id_servicio DESC");
         
         $servicios_lista = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        foreach ($servicios_lista as &$item) {
-            if (!empty($item['galeria_json'])) {
-                $fotos = json_decode($item['galeria_json'], true);
-                $item['total_fotos'] = is_array($fotos) ? count($fotos) : 1;
-            } else {
-                $item['total_fotos'] = 0;
-            }
-        }
-        unset($item);
     } catch (PDOException $e) {
         $servicios_lista = [];
     }
@@ -150,7 +140,7 @@ include __DIR__ . '/includes/header.php';
     .thumb-container { position: relative; display: inline-block; margin: 5px; }
     .btn-delete-thumb { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; font-weight: bold; cursor: pointer; }
     
-    /* BARRA DE FILTROS ESTILIZADA Y COMPACTA */
+    /* BARRA DE FILTROS COMPACTA */
     .filter-bar { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.75rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
     .filter-bar .form-select { max-width: 180px; }
 </style>
@@ -180,7 +170,7 @@ include __DIR__ . '/includes/header.php';
                 </div>
             <?php endif; ?>
 
-            <!-- BARRA DE FILTROS MODERNA Y FLUIDA -->
+            <!-- BARRA DE FILTROS ESTILIZADA Y COMPACTA -->
             <div class="filter-bar mb-3">
                 <div class="d-flex flex-wrap align-items-center gap-3">
                     <div class="d-flex align-items-center me-2">
@@ -451,7 +441,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// LÓGICA DE FILTRADO DINÁMICO MEJORADA
 function filtrarTabla() {
     let fTipo = document.getElementById('filtro_tipo').value;
     let fEvento = document.getElementById('filtro_evento').value;
@@ -543,37 +532,30 @@ function cargarGaleriaServicio(idServicio, tipo) {
             return;
         }
 
-        const registros = data.data || [];
+        const fotos = data.data || [];
 
-        if (registros.length === 0) {
+        if (fotos.length === 0) {
             contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
             return;
         }
 
-        registros.forEach(concepto => {
-            let idGaleria = concepto.id_galeria;
-            let listaUrls = concepto.urls_completas || [];
+        fotos.forEach(item => {
+            let div = document.createElement('div');
+            div.className = 'thumb-container';
 
-            if (listaUrls.length === 0) {
-                contenedor.innerHTML = '<span class="text-muted small fw-bold m-auto">No hay archivos guardados en esta carpeta todavía.</span>';
-                return;
-            }
+            let idGaleria = item.id_galeria || item.id;
+            let srcFinal = item.url_completa ? item.url_completa : `../${item.ruta_archivo}`;
 
-            listaUrls.forEach((srcFinal) => {
-                let div = document.createElement('div');
-                div.className = 'thumb-container';
+            let esVideo = item.tipo_archivo === 'video' || srcFinal.match(/\.(mp4|mov)$/i);
+            let mediaHTML = esVideo
+                ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
+                : `<img src="${srcFinal}" class="preview-thumb">`;
 
-                let esVideo = srcFinal.match(/\.(mp4|mov)$/i);
-                let mediaHTML = esVideo
-                    ? `<video class="preview-thumb" src="${srcFinal}" muted controls></video>`
-                    : `<img src="${srcFinal}" class="preview-thumb">`;
-
-                div.innerHTML = `
-                    ${mediaHTML}
-                    <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${idGaleria})">&times;</button>
-                `;
-                contenedor.appendChild(div);
-            });
+            div.innerHTML = `
+                ${mediaHTML}
+                <button type="button" class="btn-delete-thumb" onclick="eliminarFotoGaleria(${idGaleria})">&times;</button>
+            `;
+            contenedor.appendChild(div);
         });
     })
     .catch(err => {
