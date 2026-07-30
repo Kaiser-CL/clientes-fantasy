@@ -102,15 +102,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 exit;
             }
             try {
-                // Verificar si el cliente tiene eventos asociados
-                $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM eventos WHERE id_cliente = ?");
+                // Se verifica si el cliente tiene eventos ACTIVOS / PENDIENTES
+                $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM eventos WHERE id_cliente = ? AND LOWER(COALESCE(estado, 'confirmado')) NOT IN ('finalizado', 'cancelado', 'inactivo')");
                 $stmtCount->execute([$id_usuario_eliminar]);
-                $totalEventosCliente = (int)$stmtCount->fetchColumn();
-                if ($totalEventosCliente > 0) {
-                    $_SESSION['error_db'] = "No se puede eliminar el cliente: tiene " . $totalEventosCliente . " evento(s). Anula o reasigna esos eventos antes de borrar.";
+                $eventosActivosCliente = (int)$stmtCount->fetchColumn();
+
+                if ($eventosActivosCliente > 0) {
+                    $_SESSION['error_db'] = "No se puede eliminar el cliente: tiene " . $eventosActivosCliente . " evento(s) activo(s) o pendiente(s). Concluye o anula esos eventos antes de borrar.";
                     header("Location: clientes.php");
                     exit;
                 }
+
                 $stmtOld = $pdo->prepare("SELECT * FROM usuarios WHERE id_usuario = ?");
                 $stmtOld->execute([$id_usuario_eliminar]);
                 $datosBorrados = $stmtOld->fetch(PDO::FETCH_ASSOC);
@@ -132,19 +134,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
-// Consultar clientes (Rol 2) - solo activos
-$clientes = [];
+// Consultar clientes (Rol 2) divididos en Activos e Inactivos
+$clientes_activos = [];
+$clientes_inactivos = [];
 if (isset($pdo)) {
     try {
         $sql = "SELECT u.id_usuario, u.nombre_usuario, u.apellidos_usuario, 
                        u.email, u.telefono_usuario, u.estado_usuario,
-                       (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos
+                       (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario) AS total_eventos,
+                       (SELECT COUNT(*) FROM eventos e WHERE e.id_cliente = u.id_usuario AND LOWER(COALESCE(e.estado, 'confirmado')) NOT IN ('finalizado', 'cancelado', 'inactivo')) AS eventos_activos
                 FROM usuarios u
-                WHERE u.id_rol = 2 AND u.estado_usuario = 1
+                WHERE u.id_rol = 2
                 ORDER BY u.id_usuario DESC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute();
-        $clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $clientes_todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach ($clientes_todos as $cliente) {
+            if ((int)$cliente['estado_usuario'] === 1) {
+                $clientes_activos[] = $cliente;
+            } else {
+                $clientes_inactivos[] = $cliente;
+            }
+        }
     } catch (PDOException $e) {
         $error_db = "Error SQL: " . $e->getMessage();
     }
@@ -176,17 +188,86 @@ include __DIR__ . '/includes/header.php';
                 <div class="alert alert-danger"><?= htmlspecialchars($error_db) ?></div>
             <?php endif; ?>
 
-            <div class="card-custom py-3 mb-3">
+            <!-- BUSCADOR GLOBAL -->
+            <div class="card-custom py-3 mb-4">
                 <div class="search-box">
                     <i class="fa-solid fa-magnifying-glass"></i>
                     <input type="text" id="input_buscador_clientes" class="form-control form-control-lg" placeholder="Buscar cliente por nombre, correo o teléfono..." onkeyup="filtrarTablaClientes()">
                 </div>
             </div>
 
-            <div class="card shadow-sm border-0 rounded-3 overflow-hidden">
-                <div class="card-body p-0">
+            <!-- SECCIÓN CLIENTES ACTIVOS -->
+            <div class="card shadow-sm border-0 rounded-3 overflow-hidden mb-4">
+                <div class="p-3 bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+                    <span><i class="fa-solid fa-user-check me-2" style="color: var(--color-rosa);"></i> Clientes Activos</span>
+                    <span class="badge rounded-pill bg-light text-dark fs-6"><?= count($clientes_activos) ?> Registros</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 tabla-clientes">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="ps-3">ID</th>
+                                <th>Nombre Completo</th>
+                                <th>Correo Electrónico</th>
+                                <th>Teléfono</th>
+                                <th>Eventos</th>
+                                <th>Estado</th>
+                                <th class="text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($clientes_activos)): ?>
+                                <tr class="fila-sin-datos"><td colspan="7" class="text-center py-4 text-muted fw-bold">No hay clientes activos registrados.</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($clientes_activos as $c): ?>
+                                    <tr class="fila-cliente">
+                                        <td class="ps-3 fw-bold text-muted">#<?= htmlspecialchars($c['id_usuario']) ?></td>
+                                        <td><strong class="text-dark"><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong></td>
+                                        <td><?= htmlspecialchars($c['email'] ?? '') ?></td>
+                                        <td><?= htmlspecialchars($c['telefono_usuario'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <span class="badge badge-rosa rounded-pill"><?= htmlspecialchars($c['total_eventos']) ?> total</span>
+                                            <?php if ((int)$c['eventos_activos'] > 0): ?>
+                                                <span class="badge bg-success rounded-pill"><?= $c['eventos_activos'] ?> activo(s)</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><span class="badge rounded-pill bg-success">Activo</span></td>
+                                        <td class="text-center">
+                                            <button class="btn btn-sm btn-warning rounded-pill fw-bold me-1" data-bs-toggle="modal" data-bs-target="#modalEditarCliente<?= $c['id_usuario'] ?>">
+                                                <i class="fa-solid fa-pen-to-square"></i> Editar
+                                            </button>
+                                            <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
+                                                <?php if ((int)$c['eventos_activos'] > 0): ?>
+                                                    <button class="btn btn-sm btn-danger rounded-pill fw-bold" disabled title="No se puede eliminar: cliente tiene <?= htmlspecialchars($c['eventos_activos']) ?> evento(s) activo(s)">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button class="btn btn-sm btn-danger rounded-pill fw-bold" data-bs-toggle="modal" data-bs-target="#modalEliminarCliente<?= $c['id_usuario'] ?>">
+                                                        <i class="fa-solid fa-trash"></i>
+                                                    </button>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SECCIÓN CLIENTES INACTIVOS (COLAPSABLE) -->
+            <div class="card shadow-sm border-0 rounded-3 overflow-hidden mb-4">
+                <div class="p-3 bg-secondary text-white fw-bold d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#collapseInactivos">
+                    <span><i class="fa-solid fa-user-slash me-2"></i> Ver Clientes Inactivos</span>
+                    <div>
+                        <span class="badge bg-light text-dark fs-6 me-2"><?= count($clientes_inactivos) ?> Registros</span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </div>
+                </div>
+                <div class="collapse" id="collapseInactivos">
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0 tabla-clientes">
                             <thead class="table-dark">
                                 <tr>
                                     <th class="ps-3">ID</th>
@@ -199,28 +280,29 @@ include __DIR__ . '/includes/header.php';
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if (empty($clientes)): ?>
-                                    <tr><td colspan="7" class="text-center py-4 text-muted fw-bold">No hay clientes registrados.</td></tr>
+                                <?php if (empty($clientes_inactivos)): ?>
+                                    <tr class="fila-sin-datos"><td colspan="7" class="text-center py-4 text-muted fw-bold">No hay clientes inactivos.</td></tr>
                                 <?php else: ?>
-                                    <?php foreach ($clientes as $c): ?>
-                                        <tr class="fila-cliente">
+                                    <?php foreach ($clientes_inactivos as $c): ?>
+                                        <tr class="fila-cliente table-light">
                                             <td class="ps-3 fw-bold text-muted">#<?= htmlspecialchars($c['id_usuario']) ?></td>
                                             <td><strong class="text-dark"><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong></td>
                                             <td><?= htmlspecialchars($c['email'] ?? '') ?></td>
                                             <td><?= htmlspecialchars($c['telefono_usuario'] ?? 'N/A') ?></td>
-                                            <td><span class="badge badge-rosa rounded-pill"><?= htmlspecialchars($c['total_eventos']) ?> evento(s)</span></td>
                                             <td>
-                                                <span class="badge rounded-pill <?= $c['estado_usuario'] == 1 ? 'bg-success' : 'bg-danger' ?>">
-                                                    <?= $c['estado_usuario'] == 1 ? 'Activo' : 'Inactivo' ?>
-                                                </span>
+                                                <span class="badge badge-rosa rounded-pill"><?= htmlspecialchars($c['total_eventos']) ?> total</span>
+                                                <?php if ((int)$c['eventos_activos'] > 0): ?>
+                                                    <span class="badge bg-success rounded-pill"><?= $c['eventos_activos'] ?> activo(s)</span>
+                                                <?php endif; ?>
                                             </td>
+                                            <td><span class="badge rounded-pill bg-danger">Inactivo</span></td>
                                             <td class="text-center">
                                                 <button class="btn btn-sm btn-warning rounded-pill fw-bold me-1" data-bs-toggle="modal" data-bs-target="#modalEditarCliente<?= $c['id_usuario'] ?>">
                                                     <i class="fa-solid fa-pen-to-square"></i> Editar
                                                 </button>
                                                 <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
-                                                    <?php if ((int)($c['total_eventos'] ?? 0) > 0): ?>
-                                                        <button class="btn btn-sm btn-danger rounded-pill fw-bold" disabled title="No se puede eliminar: cliente tiene <?= htmlspecialchars($c['total_eventos']) ?> evento(s)">
+                                                    <?php if ((int)$c['eventos_activos'] > 0): ?>
+                                                        <button class="btn btn-sm btn-danger rounded-pill fw-bold" disabled title="No se puede eliminar: cliente tiene <?= htmlspecialchars($c['eventos_activos']) ?> evento(s) activo(s)">
                                                             <i class="fa-solid fa-trash"></i>
                                                         </button>
                                                     <?php else: ?>
@@ -231,87 +313,6 @@ include __DIR__ . '/includes/header.php';
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
-
-                                        <!-- Modal Editar Cliente -->
-                                        <div class="modal fade" id="modalEditarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
-                                            <div class="modal-dialog">
-                                                <div class="modal-content">
-                                                    <form method="POST">
-                                                        <input type="hidden" name="accion" value="editar">
-                                                        <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
-                                                        <div class="modal-header bg-dark text-white">
-                                                            <h5 class="modal-title fw-bold">Editar Cliente #<?= $c['id_usuario'] ?></h5>
-                                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            <div class="mb-3">
-                                                                <label class="form-label fw-bold">Nombre</label>
-                                                                <input type="text" name="nombre_usuario" class="form-control" value="<?= htmlspecialchars($c['nombre_usuario']) ?>" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label fw-bold">Apellidos</label>
-                                                                <input type="text" name="apellidos_usuario" class="form-control" value="<?= htmlspecialchars($c['apellidos_usuario']) ?>" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label fw-bold">Correo Electrónico</label>
-                                                                <input type="email" name="correo_usuario" class="form-control" value="<?= htmlspecialchars($c['email'] ?? '') ?>" required maxlength="100" autocomplete="email">
-                                                            </div>
-                                                            <div class="mb-3">
-                                                                <label class="form-label fw-bold">Teléfono</label>
-                                                                <input type="tel" name="telefono_usuario" class="form-control" value="<?= htmlspecialchars($c['telefono_usuario'] ?? '') ?>" maxlength="10" minlength="10" pattern="[0-9]{10}" inputmode="numeric" title="Ingresa 10 dígitos numéricos">
-                                                            </div>
-
-                                                            <?php if (esSuperAdmin()): ?>
-                                                                <div class="mb-3">
-                                                                    <label class="form-label fw-bold text-danger">Nueva Contraseña</label>
-                                                                    <input type="password" name="contrasena" class="form-control" placeholder="Dejar en blanco para mantener la actual">
-                                                                    <small class="form-text text-muted">Solo tú como Superadministrador puedes redefinir contraseñas.</small>
-                                                                </div>
-                                                            <?php endif; ?>
-
-                                                            <div class="mb-3">
-                                                                <label class="form-label fw-bold">Estado</label>
-                                                                <select name="estado_usuario" class="form-select">
-                                                                    <option value="1" <?= $c['estado_usuario'] == 1 ? 'selected' : '' ?>>Activo</option>
-                                                                    <option value="0" <?= $c['estado_usuario'] == 0 ? 'selected' : '' ?>>Inactivo</option>
-                                                                </select>
-                                                            </div>
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">Cancelar</button>
-                                                            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
-                                                        </div>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                                <!-- Modal Eliminar Cliente -->
-                                                <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
-                                                    <?php if ((int)($c['total_eventos'] ?? 0) == 0): ?>
-                                                        <div class="modal fade" id="modalEliminarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
-                                                    <div class="modal-dialog modal-sm">
-                                                        <div class="modal-content">
-                                                            <form method="POST">
-                                                                <input type="hidden" name="accion" value="eliminar">
-                                                                <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
-                                                                <div class="modal-header bg-danger text-white">
-                                                                    <h5 class="modal-title h6 fw-bold">Eliminar Cliente</h5>
-                                                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                                                </div>
-                                                                <div class="modal-body text-center">
-                                                                    ¿Seguro que deseas eliminar a <strong><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong>?
-                                                                </div>
-                                                                <div class="modal-footer justify-content-center">
-                                                                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                                                                    <button type="submit" class="btn btn-danger btn-sm">Sí, Eliminar</button>
-                                                                </div>
-                                                            </form>
-                                                        </div>
-                                                    </div>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                <?php endif; ?>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
                             </tbody>
@@ -319,6 +320,91 @@ include __DIR__ . '/includes/header.php';
                     </div>
                 </div>
             </div>
+
+            <!-- MODALES EDITAR Y ELIMINAR PARA CADA CLIENTE -->
+            <?php foreach (array_merge($clientes_activos, $clientes_inactivos) as $c): ?>
+                <!-- Modal Editar Cliente -->
+                <div class="modal fade" id="modalEditarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <form method="POST">
+                                <input type="hidden" name="accion" value="editar">
+                                <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
+                                <div class="modal-header bg-dark text-white">
+                                    <h5 class="modal-title fw-bold">Editar Cliente #<?= $c['id_usuario'] ?></h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Nombre</label>
+                                        <input type="text" name="nombre_usuario" class="form-control" value="<?= htmlspecialchars($c['nombre_usuario']) ?>" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Apellidos</label>
+                                        <input type="text" name="apellidos_usuario" class="form-control" value="<?= htmlspecialchars($c['apellidos_usuario']) ?>" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Correo Electrónico</label>
+                                        <input type="email" name="correo_usuario" class="form-control" value="<?= htmlspecialchars($c['email'] ?? '') ?>" required maxlength="100" autocomplete="email">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Teléfono</label>
+                                        <input type="tel" name="telefono_usuario" class="form-control" value="<?= htmlspecialchars($c['telefono_usuario'] ?? '') ?>" maxlength="10" minlength="10" pattern="[0-9]{10}" inputmode="numeric" title="Ingresa 10 dígitos numéricos">
+                                    </div>
+
+                                    <?php if (esSuperAdmin()): ?>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-bold text-danger">Nueva Contraseña</label>
+                                            <input type="password" name="contrasena" class="form-control" placeholder="Dejar en blanco para mantener la actual">
+                                            <small class="form-text text-muted">Solo tú como Superadministrador puedes redefinir contraseñas.</small>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <div class="mb-3">
+                                        <label class="form-label fw-bold">Estado</label>
+                                        <select name="estado_usuario" class="form-select">
+                                            <option value="1" <?= $c['estado_usuario'] == 1 ? 'selected' : '' ?>>Activo</option>
+                                            <option value="0" <?= $c['estado_usuario'] == 0 ? 'selected' : '' ?>>Inactivo</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk me-1"></i> Guardar Cambios</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Eliminar Cliente -->
+                <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
+                    <?php if ((int)($c['eventos_activos'] ?? 0) == 0): ?>
+                        <div class="modal fade" id="modalEliminarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
+                            <div class="modal-dialog modal-sm">
+                                <div class="modal-content">
+                                    <form method="POST">
+                                        <input type="hidden" name="accion" value="eliminar">
+                                        <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
+                                        <div class="modal-header bg-danger text-white">
+                                            <h5 class="modal-title h6 fw-bold">Eliminar Cliente</h5>
+                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <div class="modal-body text-center">
+                                            ¿Seguro que deseas eliminar a <strong><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong>?
+                                        </div>
+                                        <div class="modal-footer justify-content-center">
+                                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                                            <button type="submit" class="btn btn-danger btn-sm">Sí, Eliminar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            <?php endforeach; ?>
+
         </main>
     </div>
 </div>
@@ -369,6 +455,13 @@ include __DIR__ . '/includes/header.php';
 function filtrarTablaClientes() {
     var filtro = (document.getElementById('input_buscador_clientes').value || '').toLowerCase().trim();
     var filas = document.querySelectorAll('.fila-cliente');
+    
+    // Si el usuario empieza a buscar, desplegamos automáticamente la sección de inactivos
+    var collapseElem = document.getElementById('collapseInactivos');
+    if (filtro.length > 0 && collapseElem && !collapseElem.classList.contains('show')) {
+        var bsCollapse = new bootstrap.Collapse(collapseElem, { toggle: true });
+    }
+
     filas.forEach(function(fila) {
         var texto = fila.innerText.toLowerCase();
         fila.style.display = texto.includes(filtro) ? '' : 'none';
