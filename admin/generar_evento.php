@@ -189,9 +189,9 @@ include __DIR__ . '/includes/header.php';
                             <h5 class="fw-bold mb-3" style="color: var(--color-morado);"><i class="fa-solid fa-user me-2" style="color: var(--color-rosa);"></i>Información del Cliente</h5>
                             
                             <div class="mb-3">
-                                <label class="form-label text-success fw-bold"><i class="fa-solid fa-user-check me-1"></i> ¿Ya tiene un cliente registrado?</label>
+                                <label class="form-label text-success fw-bold"><i class="fa-solid fa-user-check me-1"></i> </label>
                                 <select name="id_cliente_existente" id="id_cliente_existente" class="form-select border-success" onchange="evaluarClienteExistente()">
-                                    <option value="">No, registra uno nuevo aquí abajo</option>
+                                    <option value="">Seleciona o Registra un cliente</option>
                                     <?php foreach ($clientes_lista as $cli): ?>
                                         <option value="<?= $cli['id_usuario'] ?>">
                                             <?= htmlspecialchars(trim(($cli['nombre_usuario'] ?? '') . ' ' . ($cli['apellidos_usuario'] ?? ''))) ?> (<?= htmlspecialchars($cli['email'] ?? '') ?>)
@@ -207,11 +207,11 @@ include __DIR__ . '/includes/header.php';
                                 <div class="row g-3">
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Nombre</label>
-                                        <input type="text" id="nombre_cliente" name="nombre_cliente" class="form-control" placeholder="Ej: Juan" maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
+                                        <input type="text" id="nombre_cliente" name="nombre_cliente" class="form-control" placeholder="Ej: Juan Carlos" maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Apellidos</label>
-                                        <input type="text" id="apellidos_cliente" name="apellidos_cliente" class="form-control" placeholder="Ej: García" maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
+                                        <input type="text" id="apellidos_cliente" name="apellidos_cliente" class="form-control" placeholder="Ej: García Ramos" maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Email</label>
@@ -219,11 +219,11 @@ include __DIR__ . '/includes/header.php';
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Teléfono</label>
-                                        <input type="tel" id="telefono_cliente" name="telefono_cliente" class="form-control" placeholder="3001234567" maxlength="10" minlength="10" pattern="[0-9]{10}" inputmode="numeric" title="10 dígitos">
+                                        <input type="tel" id="telefono_cliente" name="telefono_cliente" class="form-control" placeholder="5553431276" maxlength="10" minlength="10" pattern="[0-9]{10}" inputmode="numeric" title="10 dígitos">
                                     </div>
                                 </div>
                                 <div class="alert alert-info py-2 px-3 mt-3 mb-0 fs-6">
-                                    <i class="fa-solid fa-key me-1"></i> <strong>La contraseña se crea automáticamente:</strong> fantasy2026
+                                    <i class="fa-solid fa-key me-1"></i> <strong>La contraseña asignada automáticamente:</strong> fantasy2026
                                 </div>
                             </div>
                         </div>
@@ -248,10 +248,10 @@ include __DIR__ . '/includes/header.php';
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label fw-bold">Nombre del evento</label>
-                                    <input type="text" name="nombre_evento" class="form-control" placeholder="Ej: Cumpleaños de Sofía" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
+                                    <input type="text" name="nombre_evento" class="form-control" placeholder="Ej: Cumpleaños" required maxlength="80" pattern="[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+" title="Solo letras y espacios">
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label fw-bold">¿Algo especial que debamos saber?</label>
+                                    <label class="form-label fw-bold">Observaciones</label>
                                     <textarea name="comentarios_evento" class="form-control" rows="3" maxlength="500" placeholder="Alergias, preferencias, acuerdos especiales..."></textarea>
                                     <small id="contador_comentarios_evento" class="form-text text-muted">0/500</small>
                                 </div>
@@ -265,7 +265,7 @@ include __DIR__ . '/includes/header.php';
                             <h5 class="fw-bold mb-3" style="color: var(--color-morado);"><i class="fa-solid fa-receipt me-2" style="color: var(--color-rosa);"></i>Cotización Inicial</h5>
 
                             <div class="mb-3">
-                                <label class="form-label fw-bold">¿Qué paquete quieres?</label>
+                                <label class="form-label fw-bold"></label>
                                 <select name="id_paquete_base" id="select_paquete_base" class="form-select" onchange="actualizarCalculosEventos()" required>
                                     <option value="" data-precio="0" data-ubicacion="ambos">Elige un paquete...</option>
                                     <?php foreach ($paquetes_catalogo as $paq): 
