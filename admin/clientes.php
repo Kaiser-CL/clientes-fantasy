@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
         exit;
     }
     
-    // Procesa la eliminación de un cliente (rol 2)
+    // Procesa la eliminación directa de un cliente (rol 2)
     if (isset($_POST['accion']) && $_POST['accion'] === 'eliminar') {
         $id_usuario_eliminar = $_POST['id_usuario'] ?? null;
         if ($id_usuario_eliminar) {
@@ -102,21 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                 exit;
             }
             try {
-                // Se verifica si el cliente tiene eventos ACTIVOS / PENDIENTES
-                $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM eventos WHERE id_cliente = ? AND LOWER(COALESCE(estado, 'confirmado')) NOT IN ('finalizado', 'cancelado', 'inactivo')");
-                $stmtCount->execute([$id_usuario_eliminar]);
-                $eventosActivosCliente = (int)$stmtCount->fetchColumn();
-
-                if ($eventosActivosCliente > 0) {
-                    $_SESSION['error_db'] = "No se puede eliminar el cliente: tiene " . $eventosActivosCliente . " evento(s) activo(s) o pendiente(s). Concluye o anula esos eventos antes de borrar.";
-                    header("Location: clientes.php");
-                    exit;
-                }
-
                 $stmtOld = $pdo->prepare("SELECT * FROM usuarios WHERE id_usuario = ?");
                 $stmtOld->execute([$id_usuario_eliminar]);
                 $datosBorrados = $stmtOld->fetch(PDO::FETCH_ASSOC);
 
+                // Borrado directo del cliente
                 $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND id_rol = 2");
                 $stmt->execute([$id_usuario_eliminar]);
 
@@ -124,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
                     registrarBitacora($pdo, 'ELIMINAR', 'usuarios', $id_usuario_eliminar, $datosBorrados, null);
                 }
 
-                $_SESSION['mensaje_exito'] = "Cliente eliminado correctamente.";
+                $_SESSION['mensaje_exito'] = "Cliente y sus eventos asociados eliminados correctamente.";
             } catch (PDOException $e) {
                 $_SESSION['error_db'] = "Error al eliminar cliente: " . $e->getMessage();
             }
@@ -237,15 +227,9 @@ include __DIR__ . '/includes/header.php';
                                                 <i class="fa-solid fa-pen-to-square"></i> Editar
                                             </button>
                                             <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
-                                                <?php if ((int)$c['eventos_activos'] > 0): ?>
-                                                    <button class="btn btn-sm btn-danger rounded-pill fw-bold" disabled title="No se puede eliminar: cliente tiene <?= htmlspecialchars($c['eventos_activos']) ?> evento(s) activo(s)">
-                                                        <i class="fa-solid fa-trash"></i>
-                                                    </button>
-                                                <?php else: ?>
-                                                    <button class="btn btn-sm btn-danger rounded-pill fw-bold" data-bs-toggle="modal" data-bs-target="#modalEliminarCliente<?= $c['id_usuario'] ?>">
-                                                        <i class="fa-solid fa-trash"></i>
-                                                    </button>
-                                                <?php endif; ?>
+                                                <button class="btn btn-sm btn-danger rounded-pill fw-bold" data-bs-toggle="modal" data-bs-target="#modalEliminarCliente<?= $c['id_usuario'] ?>">
+                                                    <i class="fa-solid fa-trash"></i> Borrar
+                                                </button>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -301,15 +285,9 @@ include __DIR__ . '/includes/header.php';
                                                     <i class="fa-solid fa-pen-to-square"></i> Editar
                                                 </button>
                                                 <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
-                                                    <?php if ((int)$c['eventos_activos'] > 0): ?>
-                                                        <button class="btn btn-sm btn-danger rounded-pill fw-bold" disabled title="No se puede eliminar: cliente tiene <?= htmlspecialchars($c['eventos_activos']) ?> evento(s) activo(s)">
-                                                            <i class="fa-solid fa-trash"></i>
-                                                        </button>
-                                                    <?php else: ?>
-                                                        <button class="btn btn-sm btn-danger rounded-pill fw-bold" data-bs-toggle="modal" data-bs-target="#modalEliminarCliente<?= $c['id_usuario'] ?>">
-                                                            <i class="fa-solid fa-trash"></i>
-                                                        </button>
-                                                    <?php endif; ?>
+                                                    <button class="btn btn-sm btn-danger rounded-pill fw-bold" data-bs-toggle="modal" data-bs-target="#modalEliminarCliente<?= $c['id_usuario'] ?>">
+                                                        <i class="fa-solid fa-trash"></i> Borrar
+                                                    </button>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -379,29 +357,30 @@ include __DIR__ . '/includes/header.php';
 
                 <!-- Modal Eliminar Cliente -->
                 <?php if (esSuperAdmin() || (function_exists('esAdmin') && esAdmin())): ?>
-                    <?php if ((int)($c['eventos_activos'] ?? 0) == 0): ?>
-                        <div class="modal fade" id="modalEliminarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
-                            <div class="modal-dialog modal-sm">
-                                <div class="modal-content">
-                                    <form method="POST">
-                                        <input type="hidden" name="accion" value="eliminar">
-                                        <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
-                                        <div class="modal-header bg-danger text-white">
-                                            <h5 class="modal-title h6 fw-bold">Eliminar Cliente</h5>
-                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <div class="modal fade" id="modalEliminarCliente<?= $c['id_usuario'] ?>" tabindex="-1">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <form method="POST">
+                                    <input type="hidden" name="accion" value="eliminar">
+                                    <input type="hidden" name="id_usuario" value="<?= $c['id_usuario'] ?>">
+                                    <div class="modal-header bg-danger text-white">
+                                        <h5 class="modal-title fw-bold">¿Desea eliminar el cliente?</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body text-center py-4">
+                                        <p class="fs-5 mb-2">¿Desea eliminar el cliente <strong><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong>?</p>
+                                        <div class="alert alert-warning mb-0 text-start small">
+                                            <i class="fa-solid fa-triangle-exclamation me-1"></i> Los eventos finalizados o cancelados o activos también se eliminarán.
                                         </div>
-                                        <div class="modal-body text-center">
-                                            ¿Seguro que deseas eliminar a <strong><?= htmlspecialchars($c['nombre_usuario'] . ' ' . $c['apellidos_usuario']) ?></strong>?
-                                        </div>
-                                        <div class="modal-footer justify-content-center">
-                                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-                                            <button type="submit" class="btn btn-danger btn-sm">Sí, Eliminar</button>
-                                        </div>
-                                    </form>
-                                </div>
+                                    </div>
+                                    <div class="modal-footer justify-content-center">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-danger"><i class="fa-solid fa-trash me-1"></i> Eliminar</button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
-                    <?php endif; ?>
+                    </div>
                 <?php endif; ?>
             <?php endforeach; ?>
 
