@@ -114,7 +114,7 @@ $error_db = null;
 
 // --- PROCESAR POST REGULAR (ELIMINAR / MARCAR FINALIZADO) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
-    // Marcar evento como FINALIZADO (útil para eventos que ya vencieron)
+    // Marcar evento como FINALIZADO
     if (isset($_POST['accion_evento']) && $_POST['accion_evento'] === 'marcar_finalizado') {
         try {
             $id_evento_final = intval($_POST['id_evento']);
@@ -163,6 +163,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($pdo)) {
     }
 }
 
+// AUTO-FINALIZAR EVENTOS CUYA FECHA YA TRANSCURRIÓ
+if (isset($pdo)) {
+    try {
+        $sql_autofinalizar = "UPDATE eventos 
+                              SET estado = 'finalizado' 
+                              WHERE fecha_evento < CURDATE() 
+                                AND LOWER(COALESCE(estado, 'confirmado')) NOT IN ('finalizado', 'cancelado', 'inactivo')";
+        $pdo->exec($sql_autofinalizar);
+    } catch (Exception $e) {
+        // Omisión silenciosa si la tabla tiene restricciones adicionales
+    }
+}
+
 // CONSULTAR EVENTOS
 $eventos_proximos = [];
 $eventos_atrasados = [];
@@ -196,7 +209,7 @@ if (isset($pdo)) {
             $stmt_s->execute([$id_evt]);
             $evt['servicios_asociados'] = $stmt_s->fetchAll(PDO::FETCH_ASSOC);
 
-            if ($evt['fecha_evento'] >= $fecha_actual) {
+            if ($evt['fecha_evento'] >= $fecha_actual && strtolower($evt['estado'] ?? '') !== 'finalizado') {
                 $eventos_proximos[] = $evt;
             } else {
                 $eventos_atrasados[] = $evt;
@@ -228,6 +241,7 @@ include __DIR__ . '/includes/header.php';
     .badge-confirmado { background-color: var(--color-verde); color: white; }
     .badge-pendiente { background-color: var(--color-amarillo); color: black; }
     .badge-cancelado { background-color: #dc3545; color: white; }
+    .badge-finalizado { background-color: #6c757d; color: white; }
     .search-box { position: relative; }
     .search-box i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #64748b; }
     .search-box input { padding-left: 40px; border-radius: 20px; border: 2px solid #cbd5e1; }
@@ -293,7 +307,7 @@ include __DIR__ . '/includes/header.php';
                                     $cliente_nom = trim(($evt['nombre_usuario'] ?? '') . ' ' . ($evt['apellidos_usuario'] ?? ''));
                                     if (empty($cliente_nom)) $cliente_nom = 'Cliente General';
                                     $estado = strtolower($evt['estado'] ?? 'confirmado');
-                                    $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : 'badge-confirmado');
+                                    $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : (($estado === 'finalizado') ? 'badge-finalizado' : 'badge-confirmado'));
                                     $data_json = htmlspecialchars(json_encode($evt), ENT_QUOTES, 'UTF-8');
                                 ?>
                                     <tr class="fila-evento">
@@ -362,7 +376,7 @@ include __DIR__ . '/includes/header.php';
                                         $cliente_nom = trim(($evt['nombre_usuario'] ?? '') . ' ' . ($evt['apellidos_usuario'] ?? ''));
                                         if (empty($cliente_nom)) $cliente_nom = 'Cliente General';
                                         $estado = strtolower($evt['estado'] ?? 'confirmado');
-                                        $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : 'badge-confirmado');
+                                        $badge_cls = ($estado === 'cancelado') ? 'badge-cancelado' : (($estado === 'pendiente') ? 'badge-pendiente' : (($estado === 'finalizado') ? 'badge-finalizado' : 'badge-confirmado'));
                                         $data_json = htmlspecialchars(json_encode($evt), ENT_QUOTES, 'UTF-8');
                                     ?>
                                         <tr class="fila-evento table-light">
@@ -385,9 +399,11 @@ include __DIR__ . '/includes/header.php';
                                                     <button type="button" class="btn btn-sm btn-outline-primary fw-bold rounded-pill me-1 btn-abrir-modal" data-evento="<?= $data_json ?>">
                                                         <i class="fa-solid fa-eye me-1"></i> Ver / Editar
                                                     </button>
-                                                    <button type="button" class="btn btn-sm btn-outline-success fw-bold rounded-pill me-1" onclick="confirmarFinalizarDirecto(<?= $evt['id_evento'] ?>, '<?= htmlspecialchars($evt['nombre_evento'], ENT_QUOTES) ?>')">
-                                                        <i class="fa-solid fa-check"></i> Finalizar
-                                                    </button>
+                                                    <?php if ($estado !== 'finalizado'): ?>
+                                                        <button type="button" class="btn btn-sm btn-outline-success fw-bold rounded-pill me-1" onclick="confirmarFinalizarDirecto(<?= $evt['id_evento'] ?>, '<?= htmlspecialchars($evt['nombre_evento'], ENT_QUOTES) ?>')">
+                                                            <i class="fa-solid fa-check"></i> Finalizar
+                                                        </button>
+                                                    <?php endif; ?>
                                                     <button type="button" class="btn btn-sm btn-outline-danger fw-bold rounded-pill" onclick="confirmarEliminarDirecto(<?= $evt['id_evento'] ?>, '<?= htmlspecialchars($evt['nombre_evento'], ENT_QUOTES) ?>')">
                                                         <i class="fa-solid fa-trash"></i>
                                                     </button>
@@ -540,6 +556,7 @@ include __DIR__ . '/includes/header.php';
                         <select name="estado_evento" id="modal_estado_select" class="form-select">
                             <option value="confirmado">Activo / Confirmado</option>
                             <option value="pendiente">Pendiente</option>
+                            <option value="finalizado">Finalizado</option>
                             <option value="cancelado">Cancelado</option>
                         </select>
                     </div>
@@ -586,6 +603,11 @@ document.addEventListener('DOMContentLoaded', function() {
 function filtrarTablaEventos() {
     let filtro = document.getElementById('input_buscador').value.toLowerCase().trim();
     let filas = document.querySelectorAll('.fila-evento');
+
+    let collapseElem = document.getElementById('collapseAtrasados');
+    if (filtro.length > 0 && collapseElem && !collapseElem.classList.contains('show')) {
+        var bsCollapse = new bootstrap.Collapse(collapseElem, { toggle: true });
+    }
 
     filas.forEach(fila => {
         let textoFila = fila.innerText.toLowerCase();
@@ -878,7 +900,7 @@ function eliminarExtraModalAjax(idEventoServicio) {
 
 function eliminarEventoDesdeModal() {
     if (!modalEventoActual) return;
-    let folio = "#EV-" . str_pad(modalEventoActual.id_evento, 5, '0', STR_PAD_LEFT);
+    let folio = "#EV-" + String(modalEventoActual.id_evento).padStart(5, '0');
     let nom = modalEventoActual.nombre_evento || '';
     
     if (confirm(`¿Estás seguro de que deseas eliminar permanentemente el evento ${folio} ("${nom}")?\n\nEsta acción NO eliminará al cliente registrado.`)) {
